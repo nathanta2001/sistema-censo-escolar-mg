@@ -139,3 +139,16 @@ NOME_ARQUIVO_PADRAO = "censo_{ano}.csv"
 # tentativas com espera menor sem custo de tempo adicional relevante.
 DOWNLOAD_MAX_TENTATIVAS = 6
 DOWNLOAD_ESPERA_SEGUNDOS = 30
+
+# ---------------------------------------------------------------------------
+# Pesquisa Resposta Educacional a Pandemia de Covid-19 (INEP), 2a edicao
+# (ano letivo 2021), fonte do I_ERE (Indicador de Intensidade de Mediacao
+# Remota). Levantamento pontual (nao ha edicao anual continua), por isso o
+# arquivo e fornecido manualmente, nao baixado pelo extract.py.
+# ---------------------------------------------------------------------------
+PESQUISA_PANDEMIA_ARQUIVO = os.path.join(
+    DATA_DIR, 'externos', 'Questionario_Resposta_Educacional_a_Pandemia_de_Covid_19_2ed.xlsx'
+)
+PESQUISA_PANDEMIA_ABA = '2'
+PESQUISA_PANDEMIA_LINHA_CABECALHO = 10  # linha (1-indexed) com os codigos internos das colunas
+PESQUISA_PANDEMIA_LINHA_DADOS_INICIO = 11

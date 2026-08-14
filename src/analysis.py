@@ -13,28 +13,15 @@ from src.config import (
 from src.load import salvar_camada_ouro
 from src.transform import carregar_referencia_regiao
 
-# Chave de agrupamento municipal. IMPORTANTE: nao inclui cod_regiao_interm/
-# nome_regiao_interm aqui -- essas colunas podem vir NaN em anos que o INEP
-# nao disponibiliza a classificacao (ex.: 2018-2022 no Censo Escolar real),
-# e o groupby() do pandas DESCARTA por padrao qualquer linha cuja chave de
-# agrupamento seja NaN. Se a regiao entrasse na chave, um ano sem essa coluna
-# perderia TODOS os seus municipios na agregacao -- foi exatamente o bug que
-# gerava I_imp/I_rec vazios. A regiao intermediaria e anexada separadamente,
-# a partir da tabela de referencia (sempre completa apos um ano com a coluna
-# ser processado), soh no resultado final.
 COLUNAS_MUNICIPIO = ['cod_municipio', 'nome_municipio']
 
 
 def _carregar_prata(ano: int) -> pd.DataFrame:
-    """Le o parquet de um ano da camada Prata."""
     caminho = os.path.join(PRATA_DIR, f'censo_{ano}.parquet')
     return pd.read_parquet(caminho)
 
 
 def _agregar_matriculas_municipio(df_escolas: pd.DataFrame) -> pd.DataFrame:
-    """Agrega, a partir dos dados de escolas de UM ano, o total de
-    matriculas por municipio (soma). Agrupa apenas por cod_municipio/
-    nome_municipio -- ver comentario de COLUNAS_MUNICIPIO acima."""
     colunas_soma = [c for c in ['total_matriculas', 'matriculas_ead'] if c in df_escolas.columns]
     return (
         df_escolas
@@ -45,10 +32,6 @@ def _agregar_matriculas_municipio(df_escolas: pd.DataFrame) -> pd.DataFrame:
 
 
 def anexar_regiao_intermediaria(df: pd.DataFrame) -> pd.DataFrame:
-    """Anexa cod_regiao_interm/nome_regiao_interm a um DataFrame municipal,
-    a partir da tabela de referencia persistente (ver transform.py). Usar
-    isso em vez de carregar a regiao a partir dos dados de um ano especifico,
-    que pode nao ter essa coluna."""
     referencia = carregar_referencia_regiao().rename(columns={'CO_MUNICIPIO': 'cod_municipio'})
     if referencia.empty:
         df['cod_regiao_interm'] = pd.NA
@@ -62,11 +45,7 @@ def anexar_regiao_intermediaria(df: pd.DataFrame) -> pd.DataFrame:
     return df.merge(referencia, on='cod_municipio', how='left')
 
 
-# ---------------------------------------------------------------------------
-# I_imp - Indicador de Impacto (Eq. 3.1)
-# ---------------------------------------------------------------------------
 def calcular_indicador_impacto() -> pd.DataFrame:
-    """I_imp = ((M2021 - M2019) / M2019) * 100, por municipio."""
     df_2019 = _agregar_matriculas_municipio(_carregar_prata(ANO_PRE_PANDEMIA))
     df_2019 = df_2019.rename(columns={'total_matriculas': 'M2019'})[COLUNAS_MUNICIPIO + ['M2019']]
 
@@ -78,17 +57,7 @@ def calcular_indicador_impacto() -> pd.DataFrame:
     return base
 
 
-# ---------------------------------------------------------------------------
-# I_rec - Indicador de Recuperacao (Eq. 3.2)
-# ---------------------------------------------------------------------------
 def calcular_indicador_recuperacao() -> pd.DataFrame:
-    """I_rec = ((M2024 - M2021) / (M2019 - M2021)) * 100, por municipio.
-
-    Regra de excecao (Secao 3.5): quando M2021 >= M2019 o denominador fica
-    <= 0 (nao houve perda a recuperar). Nesses casos I_rec e definido
-    deterministicamente como 100% via np.where(), em vez de gerar divisao
-    por zero/NaN, e o municipio e mantido na analise como grupo de controle.
-    """
     df_2019 = _agregar_matriculas_municipio(_carregar_prata(ANO_PRE_PANDEMIA))
     df_2019 = df_2019.rename(columns={'total_matriculas': 'M2019'})[COLUNAS_MUNICIPIO + ['M2019']]
 
@@ -102,7 +71,6 @@ def calcular_indicador_recuperacao() -> pd.DataFrame:
     base = base.merge(df_2024, on='cod_municipio', how='inner')
 
     denominador = base['M2019'] - base['M2021']
-
     with np.errstate(divide='ignore', invalid='ignore'):
         i_rec_bruto = ((base['M2024'] - base['M2021']) / denominador) * 100
 
@@ -110,51 +78,16 @@ def calcular_indicador_recuperacao() -> pd.DataFrame:
     return base
 
 
-# ---------------------------------------------------------------------------
-# I_EAD - Indicador de Intensidade de Mediacao Pedagogica Remota (Eq. 3.3)
-# ---------------------------------------------------------------------------
 def calcular_indicador_ead(ano: int = ANO_PANDEMIA) -> pd.DataFrame:
-    """I_EAD = (QT_MAT_BAS_EAD / QT_MAT_BAS) * 100, por municipio, para um
-    ano especifico. Default = ano de maior restricao sanitaria (2021),
-    usado como referencia na Tabela 5 do TCC.
-
-    Municipios sem nenhuma matricula no ano (total_matriculas == 0) recebem
-    I_EAD = NaN, pois a proporcao nao e definida nesse caso.
-    """
     agregado = _agregar_matriculas_municipio(_carregar_prata(ano))
-
     with np.errstate(divide='ignore', invalid='ignore'):
         i_ead = (agregado['matriculas_ead'] / agregado['total_matriculas']) * 100
-
     agregado['I_EAD'] = np.where(agregado['total_matriculas'] == 0, np.nan, i_ead)
     agregado['ano_referencia_ead'] = ano
     return agregado[COLUNAS_MUNICIPIO + ['I_EAD', 'ano_referencia_ead']]
 
 
-# ---------------------------------------------------------------------------
-# ICT - Indice de Capacidade Tecnologica (Eq. 3.4 e 3.5)
-# ---------------------------------------------------------------------------
 def calcular_ict(ano: int) -> pd.DataFrame:
-    """ICT_m = (p_internet_m + p_banda_m + p_equip_m) / 3, por municipio,
-    para um ano especifico.
-
-    equip_e = 1 se a escola tem desktop, notebook OU tablet para alunos.
-
-    Tambem calcula, no mesmo agrupamento por municipio, dois outros
-    preditores estruturais usados na Tabela 5 do TCC (correlacao/regressao):
-    pct_urbana (% de escolas localizadas em area urbana, TP_LOCALIZACAO==1)
-    e pct_estadual (% de escolas da rede estadual, TP_DEPENDENCIA==2).
-
-    DECISAO DE PROJETO: a formula do TCC define p_x_m como
-    soma(variavel binaria) / N_m, onde N_m e o total de escolas ativas do
-    municipio -- ou seja, o denominador e sempre N_m, independente de haver
-    valores ausentes na variavel binaria. Por isso, valores ausentes (NaN)
-    nas colunas binarias de infraestrutura sao tratados aqui como 0 (escola
-    sem a caracteristica) antes da agregacao, e nao excluidos do
-    denominador. Se preferir tratar ausencia de dado como informacao
-    desconhecida (excluir do denominador em vez de contar como 0), avalie
-    com o orientador antes de usar este resultado nas correlacoes.
-    """
     df = _carregar_prata(ano)
 
     colunas_binarias = [
@@ -171,9 +104,7 @@ def calcular_ict(ano: int) -> pd.DataFrame:
         | (df['IN_TABLET_ALUNO'] == 1)
     ).astype(float)
 
-    # TP_LOCALIZACAO: 1 = Urbana, 2 = Rural (dicionario de dados INEP)
     df['urbana'] = (df['localizacao'] == 1).astype(float)
-    # TP_DEPENDENCIA: 1 = Federal, 2 = Estadual, 3 = Municipal, 4 = Privada
     df['estadual'] = (df['dependencia_administrativa'] == 2).astype(float)
 
     agregado = (
@@ -194,25 +125,14 @@ def calcular_ict(ano: int) -> pd.DataFrame:
 
 
 def calcular_ict_serie(anos=ANOS) -> pd.DataFrame:
-    """Calcula o ICT municipal para todos os anos da serie (2017-2024),
-    permitindo avaliar a evolucao da infraestrutura tecnologica municipal
-    ao longo do periodo (Secao 3.5)."""
     return pd.concat([calcular_ict(ano) for ano in anos], ignore_index=True)
 
 
-# ---------------------------------------------------------------------------
-# Serie de matriculas por regiao intermediaria (apoio a Secao 3.10 - graficos
-# de linha da evolucao temporal por regiao, 2017-2024)
-# ---------------------------------------------------------------------------
 def calcular_serie_matriculas_regiao(anos=ANOS) -> pd.DataFrame:
-    """Retorna total de matriculas por regiao intermediaria, para cada ano
-    da serie temporal. A regiao vem sempre da tabela de referencia (nao do
-    ano em si), entao funciona mesmo para anos cujo CSV nao traz a coluna."""
     partes = []
     for ano in anos:
         agregado_municipio = _agregar_matriculas_municipio(_carregar_prata(ano))
         agregado_municipio = anexar_regiao_intermediaria(agregado_municipio)
-
         agregado_regiao = (
             agregado_municipio
             .groupby(['cod_regiao_interm', 'nome_regiao_interm'], observed=True, dropna=False)['total_matriculas']
@@ -224,20 +144,29 @@ def calcular_serie_matriculas_regiao(anos=ANOS) -> pd.DataFrame:
     return pd.concat(partes, ignore_index=True)
 
 
-# ---------------------------------------------------------------------------
-# Orquestracao: gera a tabela consolidada de indicadores municipais e salva
-# na camada Ouro
-# ---------------------------------------------------------------------------
-def gerar_indicadores_ouro() -> pd.DataFrame:
-    """Monta a tabela municipal consolidada com os 4 indicadores e os 9
-    preditores estruturais da Tabela 5 do TCC, pronta para o modulo de
-    estatistica (src/stats.py).
-
-    Referencia temporal dos preditores: os preditores do impacto (I_imp) usam
-    a infraestrutura de 2019 (baseline pre-pandemia, testando se amorteceu a
-    queda); os preditores da recuperacao (I_rec) usam a infraestrutura de
-    2024 (mais proxima do periodo de retomada que se busca explicar).
+def _anexar_indicador_ere(base: pd.DataFrame) -> pd.DataFrame:
+    """Anexa o I_ERE (dias medios de mediacao remota, anos iniciais, 2021),
+    construido a partir da Pesquisa Resposta Educacional a Pandemia
+    (src/pesquisa_pandemia.py). Import feito aqui dentro (nao no topo do
+    arquivo) para que o restante do pipeline continue funcionando mesmo se
+    o arquivo externo da pesquisa ainda nao tiver sido colocado em
+    data/externos/. Nesse caso, I_ERE fica ausente com um aviso, em vez de
+    quebrar o calculo dos demais indicadores.
     """
+    try:
+        from src.pesquisa_pandemia import calcular_indicador_ere
+        i_ere = calcular_indicador_ere()
+        return base.merge(i_ere, on='cod_municipio', how='left')
+    except FileNotFoundError:
+        print(
+            "AVISO: arquivo da Pesquisa Resposta Educacional a Pandemia nao encontrado "
+            "em data/externos/ -- I_ERE nao sera calculado nesta execucao."
+        )
+        base['I_ERE'] = pd.NA
+        return base
+
+
+def gerar_indicadores_ouro() -> pd.DataFrame:
     impacto = calcular_indicador_impacto()
     recuperacao = calcular_indicador_recuperacao()[['cod_municipio', 'M2024', 'I_rec']]
     ead = calcular_indicador_ead(ANO_PANDEMIA)[['cod_municipio', 'I_EAD']]
@@ -261,8 +190,7 @@ def gerar_indicadores_ouro() -> pd.DataFrame:
     base = base.merge(infra_2019, on='cod_municipio', how='left')
     base = base.merge(infra_2024, on='cod_municipio', how='left')
 
-    # Regiao intermediaria anexada por ultimo, a partir da tabela de
-    # referencia -- util para mapas/agregacao regional (Secao 3.10)
+    base = _anexar_indicador_ere(base)
     base = anexar_regiao_intermediaria(base)
 
     salvar_camada_ouro(base, 'indicadores_municipios')

@@ -131,7 +131,7 @@ def baixar_e_extrair_dados(ano: int, forcar_download: bool = False) -> bool:
     (Secao 3.6.1: censo_<ANO>.csv) diretamente na camada Bronze.
 
     Se o CSV final ja existir na Bronze, o download e pulado (a menos que
-    forcar_download=True), evita reprocessar anos ja obtidos com sucesso
+    forcar_download=True) -- evita reprocessar anos ja obtidos com sucesso
     em execucoes anteriores.
 
     Retorna True em caso de sucesso, False se todas as tentativas falharem.
