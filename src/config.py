@@ -3,7 +3,7 @@ import os
 # ---------------------------------------------------------------------------
 # Diretorios (arquitetura Medalhao: Bronze -> Prata -> Ouro)
 # ---------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 BRONZE_DIR = os.path.join(DATA_DIR, 'bronze')
 PRATA_DIR = os.path.join(DATA_DIR, 'prata')
