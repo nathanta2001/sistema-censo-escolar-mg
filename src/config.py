@@ -152,3 +152,12 @@ PESQUISA_PANDEMIA_ARQUIVO = os.path.join(
 PESQUISA_PANDEMIA_ABA = '2'
 PESQUISA_PANDEMIA_LINHA_CABECALHO = 10  # linha (1-indexed) com os codigos internos das colunas
 PESQUISA_PANDEMIA_LINHA_DADOS_INICIO = 11
+
+# ---------------------------------------------------------------------------
+# Shapefile das Regioes Geograficas Intermediarias de MG (IBGE), usado para
+# os mapas coropleticos (Secao 3.10/4.8). Baixado manualmente do portal do
+# IBGE (mesma logica de arquivo externo do PESQUISA_PANDEMIA_ARQUIVO).
+# ---------------------------------------------------------------------------
+SHAPEFILE_REGIOES_PATH = os.path.join(
+    DATA_DIR, 'externos', 'shapefile_regioes_intermediarias', 'MG_RG_Intermediarias_2025.shp'
+)
