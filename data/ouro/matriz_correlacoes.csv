@@ -1,0 +1,11 @@
+preditor,variavel_x,variavel_y,hipotese,metodo,n,r,interpretacao_forca,ic_95_inferior,ic_95_superior,p_valor,significativo_bonferroni,tendencia_marginal
+% escolas com internet p/ aprendizagem (2019),pct_internet_2019,I_imp,Conectividade voltada ao ensino reduziu a queda de matriculas.,spearman,853,-0.0322,Correlacao desprezivel,-0.105,0.0385,0.3471560138837709,False,False
+% escolas com banda larga (2019),pct_banda_2019,I_imp,Melhor qualidade de conexao reduziu o impacto.,spearman,853,-0.05,Correlacao desprezivel,-0.1184,0.0187,0.14448161231402903,False,False
+ICT municipal (2019),ICT_2019,I_imp,Maior capacidade tecnologica agregada reduziu o impacto.,spearman,853,-0.0563,Correlacao desprezivel,-0.1232,0.0099,0.10020023371820597,False,False
+I_EAD (2021),I_EAD,I_imp,Municipios com maior adocao de EAD perderam menos matriculas.,spearman,853,-0.1528,Correlacao fraca,-0.2103,-0.0874,7.399813348743027e-06,True,False
+% escolas urbanas (2019),pct_urbana_2019,I_imp,Localizacao urbana funcionou como fator de protecao.,spearman,853,-0.0549,Correlacao desprezivel,-0.125,0.0128,0.10899179211751983,False,False
+"I_ERE - dias de mediacao remota, anos iniciais (2021)",I_ERE,I_imp,Municipios com maior intensidade de mediacao remota apresentaram menor impacto negativo nas matriculas durante a pandemia.,spearman,821,0.0851,Correlacao desprezivel,0.0148,0.1572,0.014778551652421673,False,True
+ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,853,0.1591,Correlacao fraca,0.0944,0.2258,3.024076058736533e-06,True,False
+% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,853,0.0814,Correlacao desprezivel,0.0129,0.1492,0.017354498844315613,False,True
+% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,853,-0.1091,Correlacao fraca,-0.1765,-0.0408,0.0014154264928228518,True,False
+% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,853,0.1716,Correlacao fraca,0.1061,0.2321,4.577123847690711e-07,True,False

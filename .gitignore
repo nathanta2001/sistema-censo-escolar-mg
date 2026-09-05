@@ -15,4 +15,11 @@ __pycache__/
 .idea/
 
 # Dados 
-data/
+data/*
+!data/externos/
+!data/ouro/
+data/ouro/*
+!data/ouro/*.csv
+!data/ouro/graficos/
+data/ouro/graficos/*
+!data/ouro/graficos/*.png

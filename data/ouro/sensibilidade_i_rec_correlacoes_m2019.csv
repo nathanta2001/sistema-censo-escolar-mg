@@ -1,0 +1,21 @@
+limiar_M2019,preditor,variavel_x,variavel_y,hipotese,metodo,n,r,interpretacao_forca,ic_95_inferior,ic_95_superior,p_valor,significativo_bonferroni,tendencia_marginal
+0,ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,853,0.1591,Correlacao fraca,0.0944,0.2258,3.024076058736533e-06,True,False
+0,% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,853,0.0814,Correlacao desprezivel,0.0129,0.1492,0.017354498844315613,False,True
+0,% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,853,-0.1091,Correlacao fraca,-0.1765,-0.0408,0.0014154264928228518,True,False
+0,% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,853,0.1716,Correlacao fraca,0.1061,0.2321,4.577123847690711e-07,True,False
+200,ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,852,0.1603,Correlacao fraca,0.0948,0.2287,2.5858097305829304e-06,True,False
+200,% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,852,0.0833,Correlacao desprezivel,0.0134,0.148,0.014984327110401539,False,True
+200,% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,852,-0.1125,Correlacao fraca,-0.1797,-0.0452,0.001007501763596715,True,False
+200,% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,852,0.1743,Correlacao fraca,0.1092,0.2442,3.0846439881162715e-07,True,False
+500,ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,808,0.1509,Correlacao fraca,0.0854,0.2165,1.6618390578008937e-05,True,False
+500,% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,808,0.0824,Correlacao desprezivel,0.0112,0.151,0.019116101437821276,False,True
+500,% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,808,-0.1281,Correlacao fraca,-0.1931,-0.0574,0.0002628094988407463,True,False
+500,% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,808,0.1761,Correlacao fraca,0.1045,0.244,4.7241067353419195e-07,True,False
+1000,ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,623,0.1971,Correlacao fraca,0.1191,0.2736,7.104053475043103e-07,True,False
+1000,% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,623,0.1128,Correlacao fraca,0.0337,0.1895,0.004811593043897125,True,False
+1000,% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,623,-0.1553,Correlacao fraca,-0.2367,-0.0756,9.955532194475927e-05,True,False
+1000,% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,623,0.2053,Correlacao fraca,0.1243,0.282,2.3497263146562707e-07,True,False
+2000,ICT municipal (2024),ICT_2024,I_rec,Maior infraestrutura tecnologica acelerou a recuperacao.,spearman,357,0.2169,Correlacao fraca,0.1108,0.3234,3.5898830033836145e-05,True,False
+2000,% escolas com banda larga (2024),pct_banda_2024,I_rec,Conectividade de qualidade favoreceu a recuperacao.,spearman,357,0.1724,Correlacao fraca,0.0599,0.2732,0.0010712438556329217,True,False
+2000,% escolas estaduais (2024),pct_estadual_2024,I_rec,Dependencia administrativa influenciou o ritmo de recuperacao.,spearman,357,-0.1535,Correlacao fraca,-0.2443,-0.0539,0.003644074996637617,True,False
+2000,% escolas urbanas (2024),pct_urbana_2024,I_rec,Localizacao urbana favoreceu a retomada mais rapida.,spearman,357,0.2122,Correlacao fraca,0.1022,0.3142,5.311728419235143e-05,True,False
