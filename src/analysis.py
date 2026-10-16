@@ -9,6 +9,7 @@ from src.config import (
     ANO_PRE_PANDEMIA,
     ANOS,
     PRATA_DIR,
+    MAPA_DEPENDENCIA    
 )
 from src.load import salvar_camada_ouro
 from src.transform import carregar_referencia_regiao
@@ -196,3 +197,54 @@ def gerar_indicadores_ouro() -> pd.DataFrame:
     salvar_camada_ouro(base, 'indicadores_municipios')
 
     return base
+
+def calcular_serie_matriculas_dependencia(anos=ANOS) -> pd.DataFrame:
+    """Total de matriculas (e matriculas em EAD) por municipio, ano e
+    dependencia administrativa (Federal/Estadual/Municipal/Privada), com a
+    regiao intermediaria anexada. Alimenta o dashboard (filtros por regiao,
+    ano e tipo de rede) e a Figura 12 (evolucao das matriculas em EAD).
+
+    Se um ano nao tiver a coluna matriculas_ead, ela e preenchida com NaN
+    (e avisada), em vez de quebrar a geracao da serie.
+    """
+    partes = []
+    for ano in anos:
+        df = _carregar_prata(ano)
+        if 'dependencia_administrativa' not in df.columns:
+            print(f"AVISO: ano {ano} sem coluna de dependencia administrativa. Pulando este ano nesta serie.")
+            continue
+        if 'matriculas_ead' not in df.columns:
+            print(f"AVISO: ano {ano} sem coluna matriculas_ead. Valores de EAD ficam ausentes para este ano.")
+            df = df.assign(matriculas_ead=np.nan)
+
+        agregado = (
+            df.groupby(COLUNAS_MUNICIPIO + ['dependencia_administrativa'], observed=True)[
+                ['total_matriculas', 'matriculas_ead']
+            ]
+            .sum(min_count=1)
+            .reset_index()
+        )
+        agregado['ano'] = ano
+        partes.append(agregado)
+
+    serie = pd.concat(partes, ignore_index=True)
+    serie['dependencia_administrativa'] = serie['dependencia_administrativa'].map(MAPA_DEPENDENCIA)
+    serie = anexar_regiao_intermediaria(serie)
+    return serie
+
+
+def gerar_serie_dependencia_ouro() -> pd.DataFrame:
+    """Calcula e salva a serie de matriculas por municipio/ano/dependencia
+    na camada Ouro, para uso no dashboard Power BI."""
+    serie = calcular_serie_matriculas_dependencia()
+    salvar_camada_ouro(serie, 'serie_matriculas_dependencia')
+
+    return serie
+
+def gerar_serie_regiao_ouro() -> pd.DataFrame:
+    """Calcula e salva a serie de matriculas por regiao intermediaria na
+    camada Ouro, para uso no dashboard."""
+    serie = calcular_serie_matriculas_regiao()
+    salvar_camada_ouro(serie, 'serie_matriculas_regiao')
+    
+    return serie

@@ -17,11 +17,9 @@ import openpyxl
 import pandas as pd
 
 from src.config import (
-    CO_UF_MG,
     PESQUISA_PANDEMIA_ABA,
     PESQUISA_PANDEMIA_ARQUIVO,
     PESQUISA_PANDEMIA_LINHA_CABECALHO,
-    PESQUISA_PANDEMIA_LINHA_DADOS_INICIO,
 )
 
 NOME_UF_MG = "Minas Gerais"

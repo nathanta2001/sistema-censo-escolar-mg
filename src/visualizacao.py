@@ -3,6 +3,7 @@ Modulo de visualizacao estatica (Secao 3.10 do TCC).
 """
 
 import os
+import warnings
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -35,13 +36,16 @@ def _logit(serie_percentual: pd.Series) -> pd.Series:
 
 
 def plot_dispersao_imp(df, coluna_x, coluna_y, rotulo_x, rotulo_y, titulo, caminho_saida):
+    """Dispersao + tendencia LOWESS (preditor continuo, ex.: I_ERE)."""
     dados = df[[coluna_x, coluna_y]].dropna()
     fig, ax = plt.subplots(figsize=(6, 4.5), dpi=300)
-    sns.regplot(
-        data=dados, x=coluna_x, y=coluna_y, ax=ax, lowess=True,
-        scatter_kws={'alpha': 0.35, 's': 18, 'color': '#2c6e91'},
-        line_kws={'color': '#c0392b', 'linewidth': 2},
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)
+        sns.regplot(
+            data=dados, x=coluna_x, y=coluna_y, ax=ax, lowess=True,
+            scatter_kws={'alpha': 0.35, 's': 18, 'color': '#2c6e91'},
+            line_kws={'color': '#c0392b', 'linewidth': 2},
+        )
     ax.set_xlabel(rotulo_x)
     ax.set_ylabel(rotulo_y)
     ax.set_title(titulo, fontsize=11)
@@ -50,31 +54,98 @@ def plot_dispersao_imp(df, coluna_x, coluna_y, rotulo_x, rotulo_y, titulo, camin
     plt.close(fig)
 
 
-def plot_dispersao_rec_logit(df, coluna_x, rotulo_x, titulo, caminho_saida, limite_logit_exibicao=6.0):
-    dados = df[[coluna_x, 'I_rec']].dropna().copy()
-    dados['logit_I_rec'] = _logit(dados['I_rec'])
-    modelo = smf.ols(f'logit_I_rec ~ {coluna_x}', data=dados).fit()
-    beta0, beta1 = modelo.params['Intercept'], modelo.params[coluna_x]
-    r2 = modelo.rsquared
-    p_valor = modelo.pvalues[coluna_x]
-    dentro_limite = dados['logit_I_rec'].abs() <= limite_logit_exibicao
-    dados_visiveis = dados[dentro_limite]
-    n_omitidos = (~dentro_limite).sum()
+def plot_dispersao_zero_inflada(df, coluna_x, rotulo_x, titulo, caminho_saida,
+                                 coluna_y='I_imp', rotulo_y='I_imp (%)') -> dict:
+    """Figura para preditores com muitos zeros (ex.: I_EAD, em que a maioria
+    dos municipios nao registra matricula EAD).
 
-    fig, ax = plt.subplots(figsize=(6, 4.5), dpi=300)
-    ax.scatter(dados_visiveis[coluna_x], dados_visiveis['logit_I_rec'], alpha=0.35, s=18, color='#2c6e91')
-    x_linha = np.linspace(dados[coluna_x].min(), dados[coluna_x].max(), 100)
-    ax.plot(x_linha, beta0 + beta1 * x_linha, color='#c0392b', linewidth=2)
-    ax.set_xlabel(rotulo_x)
-    ax.set_ylabel('logit(I_rec)')
-    ax.set_ylim(-limite_logit_exibicao - 0.5, limite_logit_exibicao + 0.5)
-    ax.set_title(titulo, fontsize=11)
-    nota = f"  |  {n_omitidos} município(s) com I_rec muito fora de [0%, 100%] omitidos do gráfico" if n_omitidos > 0 else ""
-    ax.text(0.03, 0.03, f"β₁ = {beta1:.3f}   R² = {r2:.4f}   p = {p_valor:.1e}{nota}",
-            transform=ax.transAxes, fontsize=7, color='#444444', va='bottom', ha='left', wrap=True)
+    Com a massa de zeros, um unico LOWESS sobre todos os pontos e instavel e
+    pode sugerir uma tendencia oposta a correlacao de Spearman reportada
+    (que e dominada pelo contraste entre os grupos x = 0 e x > 0). Por isso a
+    figura tem dois paineis: (a) comparacao de y entre os dois grupos e
+    (b) dispersao apenas dos municipios com x > 0, com LOWESS.
+    Retorna as medianas dos grupos, para citacao no texto.
+    """
+    dados = df[[coluna_x, coluna_y]].dropna()
+    zero = dados[dados[coluna_x] == 0]
+    pos = dados[dados[coluna_x] > 0]
+
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(9.5, 4.5), dpi=300, gridspec_kw={'width_ratios': [1, 1.7]}
+    )
+
+    rotulos = [f"{coluna_x} = 0\n(n = {len(zero)})", f"{coluna_x} > 0\n(n = {len(pos)})"]
+    ax1.boxplot([zero[coluna_y], pos[coluna_y]], tick_labels=rotulos, widths=0.55,
+                patch_artist=True, medianprops={'color': '#c0392b', 'linewidth': 2},
+                boxprops={'facecolor': '#cfe3ee'}, flierprops={'markersize': 3, 'alpha': 0.4})
+    ax1.set_ylabel(rotulo_y)
+    ax1.set_title('(a) Comparação entre grupos', fontsize=10)
+
+    ax2.scatter(pos[coluna_x], pos[coluna_y], alpha=0.45, s=20, color='#2c6e91')
+    if len(pos) >= 15:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', RuntimeWarning)
+            sns.regplot(data=pos, x=coluna_x, y=coluna_y, ax=ax2, lowess=True,
+                        scatter=False, line_kws={'color': '#c0392b', 'linewidth': 2})
+    ax2.set_xlabel(rotulo_x)
+    ax2.set_ylabel(rotulo_y)
+    ax2.set_title(f'(b) Apenas municípios com {coluna_x} > 0', fontsize=10)
+
+    fig.suptitle(titulo, fontsize=11)
     fig.tight_layout()
     fig.savefig(caminho_saida, bbox_inches='tight')
     plt.close(fig)
+
+    return {'mediana_x0': float(zero[coluna_y].median()), 'mediana_xpos': float(pos[coluna_y].median()),
+            'n_x0': len(zero), 'n_xpos': len(pos)}
+
+
+def plot_dispersao_rec_logit(df, coluna_x, rotulo_x, titulo, caminho_saida, eps=1e-4) -> dict:
+    """Dispersao de logit(I_rec) com a reta OLS ajustada (modelo da Secao 4.6).
+
+    TODOS os municipios sao exibidos. Como I_rec nao e limitado a [0, 100]
+    (pode ser negativo ou superior a 100%), a transformacao logit so e
+    aplicada apos truncar I_rec/100 em [eps, 1-eps]. Os municipios com
+    I_rec <= 0% e >= 100% ficam, portanto, nas faixas extremas (+/- ln((1-eps)/eps),
+    cerca de 9,21 para eps = 1e-4); eles sao desenhados com cores proprias e
+    pequena dispersao vertical, em vez de omitidos, para que a reta ajustada
+    (que usa todos os pontos) seja compativel com o que se ve no grafico.
+    """
+    dados = df[[coluna_x, 'I_rec']].dropna().copy()
+    dados['logit_I_rec'] = _logit(dados['I_rec'])
+
+    modelo = smf.ols(f'logit_I_rec ~ {coluna_x}', data=dados).fit()
+    beta0, beta1 = modelo.params['Intercept'], modelo.params[coluna_x]
+    r2, p_valor = modelo.rsquared, modelo.pvalues[coluna_x]
+
+    pct = dados['I_rec'] / 100.0
+    topo = pct >= 1 - eps
+    base = pct <= eps
+    meio = ~(topo | base)
+    limite = np.log((1 - eps) / eps)
+    rng = np.random.default_rng(42)
+    jitter = rng.uniform(-0.35, 0.35, len(dados))
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.8), dpi=300)
+    ax.scatter(dados.loc[meio, coluna_x], dados.loc[meio, 'logit_I_rec'], s=16, alpha=0.5,
+               color='#2c6e91', label=f'0% < I_rec < 100% (n = {int(meio.sum())})')
+    ax.scatter(dados.loc[topo, coluna_x], dados.loc[topo, 'logit_I_rec'] + jitter[topo.values],
+               s=12, alpha=0.4, color='#2e8b57', label=f'I_rec ≥ 100% (n = {int(topo.sum())})')
+    ax.scatter(dados.loc[base, coluna_x], dados.loc[base, 'logit_I_rec'] + jitter[base.values],
+               s=12, alpha=0.4, color='#d9822b', label=f'I_rec ≤ 0% (n = {int(base.sum())})')
+
+    x_linha = np.linspace(dados[coluna_x].min(), dados[coluna_x].max(), 100)
+    ax.plot(x_linha, beta0 + beta1 * x_linha, color='#c0392b', linewidth=2, label='Reta ajustada')
+    ax.set_ylim(-limite - 1, limite + 1)
+    ax.set_xlabel(rotulo_x + "\n" + rf"$\beta_1$ = {beta1:.3f}   $R^2$ = {r2:.4f}   p = {p_valor:.1e}")
+    ax.set_ylabel('logit(I_rec)')
+    ax.set_title(titulo, fontsize=11)
+    ax.legend(fontsize=7, loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False)
+    fig.tight_layout()
+    fig.savefig(caminho_saida, bbox_inches='tight')
+    plt.close(fig)
+
+    return {'n_meio': int(meio.sum()), 'n_topo': int(topo.sum()), 'n_base': int(base.sum())}
 
 
 def gerar_todas_as_dispersoes(df_indicadores, diretorio_saida=DIR_GRAFICOS):
@@ -84,15 +155,59 @@ def gerar_todas_as_dispersoes(df_indicadores, diretorio_saida=DIR_GRAFICOS):
         if coluna_x not in df_indicadores.columns:
             continue
         caminho = os.path.join(diretorio_saida, f'dispersao_{coluna_x}_{coluna_y}.png')
-        plot_dispersao_imp(df_indicadores, coluna_x, coluna_y, rotulo_x, rotulo_y, titulo, caminho)
+        if coluna_x == 'I_EAD':
+            info = plot_dispersao_zero_inflada(df_indicadores, coluna_x, rotulo_x, titulo, caminho)
+            print(f"I_EAD: mediana de I_imp = {info['mediana_x0']:.2f}% (I_EAD = 0, n = {info['n_x0']}) "
+                  f"vs {info['mediana_xpos']:.2f}% (I_EAD > 0, n = {info['n_xpos']})")
+        else:
+            plot_dispersao_imp(df_indicadores, coluna_x, coluna_y, rotulo_x, rotulo_y, titulo, caminho)
         caminhos.append(caminho)
     for coluna_x, coluna_y, rotulo_x, rotulo_y, titulo in PARES_REC_PARA_PLOTAR:
         if coluna_x not in df_indicadores.columns:
             continue
         caminho = os.path.join(diretorio_saida, f'dispersao_{coluna_x}_logit_I_rec.png')
-        plot_dispersao_rec_logit(df_indicadores, coluna_x, rotulo_x, titulo, caminho)
+        info = plot_dispersao_rec_logit(df_indicadores, coluna_x, rotulo_x, titulo, caminho)
+        print(f"{coluna_x}: {info['n_topo']} municípios com I_rec ≥ 100%, "
+              f"{info['n_base']} com I_rec ≤ 0%, {info['n_meio']} intermediários")
         caminhos.append(caminho)
     return caminhos
+
+
+def plot_evolucao_ead(serie_dependencia, caminho_saida):
+    """Evolucao da proporcao de matriculas em EAD (% do total de matriculas
+    da educacao basica), por regiao intermediaria e para o estado (Objetivo
+    Especifico 2 -- evolucao temporal da modalidade de ensino).
+
+    serie_dependencia: tabela de matriculas por municipio/ano/dependencia
+    com as colunas total_matriculas e matriculas_ead.
+    """
+    if 'matriculas_ead' not in serie_dependencia.columns:
+        raise ValueError("A serie nao tem a coluna 'matriculas_ead'. Regenere a "
+                         "serie de matriculas por dependencia (analysis.py).")
+    dados = serie_dependencia.dropna(subset=['nome_regiao_interm']).copy()
+
+    por_regiao = (dados.groupby(['ano', 'nome_regiao_interm'], observed=True)[['total_matriculas', 'matriculas_ead']]
+                  .sum().reset_index())
+    por_regiao['pct_ead'] = por_regiao['matriculas_ead'] / por_regiao['total_matriculas'] * 100
+    estado = dados.groupby('ano')[['total_matriculas', 'matriculas_ead']].sum().reset_index()
+    estado['pct_ead'] = estado['matriculas_ead'] / estado['total_matriculas'] * 100
+
+    fig, ax = plt.subplots(figsize=(9, 5.5), dpi=300)
+    paleta = sns.color_palette("husl", n_colors=por_regiao['nome_regiao_interm'].nunique())
+    sns.lineplot(data=por_regiao, x='ano', y='pct_ead', hue='nome_regiao_interm',
+                 palette=paleta, linewidth=1.1, marker='o', markersize=3, ax=ax, alpha=0.8)
+    ax.plot(estado['ano'], estado['pct_ead'], color='black', linewidth=2.6, marker='o',
+            markersize=5, label='Minas Gerais')
+    ax.axvspan(2020, 2021, color='gray', alpha=0.08, label='Período pandêmico')
+    ax.set_xlabel('Ano')
+    ax.set_ylabel('Matrículas em EAD (% do total)')
+    ax.set_title('Evolução da proporção de matrículas em EAD (2017-2024)', fontsize=11)
+    ax.legend(title='Região Intermediária', bbox_to_anchor=(1.02, 1), loc='upper left',
+              fontsize=7.5, title_fontsize=8)
+    fig.tight_layout()
+    fig.savefig(caminho_saida, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Salvo: {caminho_saida}")
 
 
 def plot_evolucao_matriculas_regiao(serie_regiao, caminho_saida):
