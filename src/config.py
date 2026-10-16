@@ -92,6 +92,8 @@ MAPEAMENTO_COLUNAS = {
     'TP_DEPENDENCIA': 'dependencia_administrativa',
 }
 
+MAPA_DEPENDENCIA = {1: 'Federal', 2: 'Estadual', 3: 'Municipal', 4: 'Privada'}
+
 # Excecoes de nome de coluna por ano (grafia diferente do padrao atual)
 EXCECOES_POR_ANO = {}
 

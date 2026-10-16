@@ -21,7 +21,9 @@ adicional (Secao 3.8.3/4.6). Ela NAO substitui o calculo principal do I_rec
 sobre os 853 municipios, que permanece como definido na Secao 3.5.
 """
 
+import numpy as np
 import pandas as pd
+import statsmodels.formula.api as smf
 
 from src.stats import PARES_CORRELACAO, calcular_matriz_correlacoes
 
@@ -115,14 +117,78 @@ def correlacoes_por_denominador(df: pd.DataFrame, limiares=LIMIARES_DENOMINADOR)
     return pd.concat(linhas, ignore_index=True)
 
 
+# ---------------------------------------------------------------------------
+# Robustez da especificacao da regressao de I_rec (Secao 3.8.2)
+#
+# I_rec nao e limitado a [0, 100]: pode ser negativo ou superior a 100%. O
+# logit so existe em (0, 1); por isso a transformacao e aplicada apos truncar
+# I_rec/100 em [eps, 1 - eps]. Valores <= 0% ou >= 100% passam a ocupar os
+# extremos +/- ln((1 - eps)/eps) (cerca de 9,21 para eps = 1e-4), e a
+# magnitude de beta1 depende da escolha de eps. As duas analises abaixo
+# verificam (i) se sinal e significancia sobrevivem a outros valores de eps e
+# (ii) o que ocorre num desfecho binario, de interpretacao direta.
+# ---------------------------------------------------------------------------
+EPSILONS_LOGIT = [1e-2, 1e-3, 1e-4]
+PREDITORES_I_REC = ['ICT_2024', 'pct_estadual_2024', 'pct_urbana_2024']
+
+
+def robustez_epsilon_logit(df: pd.DataFrame, preditores=PREDITORES_I_REC, epsilons=EPSILONS_LOGIT) -> pd.DataFrame:
+    """Reajusta a regressao OLS de logit(I_rec) para varios valores do
+    recorte eps e reporta beta1, valor-p e R2 de cada um."""
+    linhas = []
+    for x in preditores:
+        if x not in df.columns:
+            continue
+        d = df[[x, 'I_rec']].dropna()
+        for eps in epsilons:
+            p = (d['I_rec'] / 100.0).clip(lower=eps, upper=1 - eps)
+            dados = pd.DataFrame({'x': d[x].to_numpy(), 'y': np.log(p / (1 - p)).to_numpy()})
+            m = smf.ols('y ~ x', data=dados).fit()
+            linhas.append({
+                'preditor': x, 'epsilon': eps, 'n': int(m.nobs),
+                'beta1': float(m.params['x']), 'p_valor': float(m.pvalues['x']), 'r2': float(m.rsquared),
+            })
+    return pd.DataFrame(linhas)
+
+
+def regressao_logistica_recuperacao_plena(df: pd.DataFrame, preditores=PREDITORES_I_REC) -> pd.DataFrame:
+    """Regressao logistica com desfecho binario: recuperacao plena ou
+    superacao (I_rec >= 100%) contra as demais situacoes. Dispensa a
+    transformacao de I_rec e tem interpretacao direta: a razao de chances
+    (OR) e reportada por aumento de 1 desvio-padrao do preditor."""
+    linhas = []
+    for x in preditores:
+        if x not in df.columns:
+            continue
+        d = df[[x, 'I_rec']].dropna()
+        if d[x].std() == 0:
+            continue
+        dados = pd.DataFrame({
+            'x': ((d[x] - d[x].mean()) / d[x].std()).to_numpy(),
+            'y': (d['I_rec'] >= 100).astype(int).to_numpy(),
+        })
+        m = smf.logit('y ~ x', data=dados).fit(disp=0)
+        ic = m.conf_int().loc['x']
+        linhas.append({
+            'preditor': x, 'n': int(m.nobs), 'pct_recuperacao_plena': float(dados['y'].mean() * 100),
+            'odds_ratio_por_dp': float(np.exp(m.params['x'])),
+            'or_ic95_inf': float(np.exp(ic[0])), 'or_ic95_sup': float(np.exp(ic[1])),
+            'p_valor': float(m.pvalues['x']),
+        })
+    return pd.DataFrame(linhas)
+
+
 def executar_analise_sensibilidade(df: pd.DataFrame) -> dict:
     """Executa a analise de sensibilidade completa (ambos os criterios) e
-    retorna os quatro resultados prontos para exportar."""
+    retorna os resultados prontos para exportar (inclui a robustez da
+    especificacao logit e a regressao logistica de recuperacao plena)."""
     return {
         'descritiva_m2019': estatistica_descritiva_por_limiar(df),
         'correlacoes_m2019': correlacoes_por_limiar(df),
         'descritiva_denominador': estatistica_descritiva_por_denominador(df),
         'correlacoes_denominador': correlacoes_por_denominador(df),
+        'robustez_epsilon_logit': robustez_epsilon_logit(df),
+        'logistica_recuperacao_plena': regressao_logistica_recuperacao_plena(df),
     }
 
 

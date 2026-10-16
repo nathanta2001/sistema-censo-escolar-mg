@@ -23,6 +23,20 @@ def executar_sistema():
         salvar_camada_prata(df_limpo, ano)
         anos_com_sucesso.add(ano)
 
+    
+    # Segunda passada: reprocessa a transformacao (sem novo download) dos
+    # anos ja obtidos nesta execucao. Necessario porque a tabela de
+    # referencia de regiao intermediaria (Secao 3.6.2) so fica completa
+    # depois que um ano COM as colunas nativas (2023/2024) e processado;
+    # anos processados em ordem antes disso ficam com regiao ausente na
+    # primeira passada. Como transformar_dados() nao faz nenhuma chamada de
+    # rede (so relê o CSV ja baixado na Bronze), essa segunda passada e
+    # rapida e sempre segura de rodar.
+    print("\nSegunda passada: atualizando regiao intermediaria com a tabela de referencia completa...")
+    for ano in anos_com_sucesso:
+        df_limpo = transformar_dados(ano)
+        salvar_camada_prata(df_limpo, ano)
+
     anos_essenciais_faltando = ANOS_ESSENCIAIS - anos_com_sucesso
     if anos_essenciais_faltando:
         print(

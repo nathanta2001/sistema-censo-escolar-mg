@@ -10,14 +10,21 @@ import os
 
 import pandas as pd
 
-from src.analysis import calcular_serie_matriculas_regiao
+from src.analysis import (
+    calcular_serie_matriculas_regiao,
+    gerar_serie_dependencia_ouro,
+    gerar_serie_regiao_ouro,
+    
+)
 from src.config import OURO_DIR
 from src.visualizacao import (
     DIR_GRAFICOS,
     gerar_mapas_coropleticos,
     gerar_todas_as_dispersoes,
     plot_evolucao_matriculas_regiao,
+    plot_evolucao_ead,
 )
+
 
 
 def main():
@@ -41,6 +48,16 @@ def main():
 
     print("\nGerando mapas coropléticos...")
     gerar_mapas_coropleticos(df_indicadores)
+
+    print("\nGerando série de dependência Ouro...")
+    gerar_serie_dependencia_ouro()
+
+    print("\nGerando série de região Ouro...")
+    gerar_serie_regiao_ouro()
+
+    print("\nGerando série por dependência e gráfico de evolução do EAD...")
+    serie_dep = gerar_serie_dependencia_ouro()
+    plot_evolucao_ead(serie_dep, os.path.join(DIR_GRAFICOS, 'evolucao_ead.png'))
 
     print(f"\nTodos os gráficos foram salvos em: {DIR_GRAFICOS}")
 
