@@ -230,6 +230,35 @@ with aba3:
 
     if coluna_x not in indicadores.columns:
         st.warning(f"Coluna '{coluna_x}' não disponível nos dados carregados.")
+    elif coluna_x == 'I_EAD' and coluna_y == 'I_imp':
+        # Variavel com muitos zeros: um unico LOWESS e instavel; compara-se os
+        # grupos (x = 0 e x > 0) e mostra-se a dispersao apenas de x > 0.
+        dados_ead = indicadores[['I_EAD', 'I_imp']].dropna()
+        zero = dados_ead[dados_ead['I_EAD'] == 0]
+        pos = dados_ead[dados_ead['I_EAD'] > 0]
+        grupos = pd.concat([
+            pd.DataFrame({'grupo': f'I_EAD = 0 (n = {len(zero)})', 'I_imp': zero['I_imp']}),
+            pd.DataFrame({'grupo': f'I_EAD > 0 (n = {len(pos)})', 'I_imp': pos['I_imp']}),
+        ])
+        col_a, col_b = st.columns([1, 1.6])
+        with col_a:
+            st.plotly_chart(
+                px.box(grupos, x='grupo', y='I_imp', labels={'grupo': '', 'I_imp': 'I_imp (%)'},
+                       title='(a) Comparação entre grupos'),
+                width='stretch',
+            )
+        with col_b:
+            fig_pos = px.scatter(
+                pos, x='I_EAD', y='I_imp', opacity=0.5,
+                trendline='lowess' if len(pos) >= 15 else None,
+                labels={'I_EAD': 'I_EAD (%)', 'I_imp': 'I_imp (%)'},
+                title='(b) Apenas municípios com I_EAD > 0',
+            )
+            st.plotly_chart(fig_pos, width='stretch')
+        st.caption(
+            f"Mediana de I_imp: {zero['I_imp'].median():.2f}% (I_EAD = 0, n = {len(zero)}) "
+            f"contra {pos['I_imp'].median():.2f}% (I_EAD > 0, n = {len(pos)})."
+        )
     elif coluna_y == 'I_imp':
         fig_disp = px.scatter(
             indicadores, x=coluna_x, y='I_imp', trendline='lowess',
@@ -237,30 +266,44 @@ with aba3:
         )
         st.plotly_chart(fig_disp, width='stretch')
     else:
+        # I_rec nao e limitado a [0, 100]: o logit usa I_rec/100 truncado em
+        # [eps, 1 - eps]. Todos os municipios sao exibidos; os que ficam nas
+        # faixas extremas (I_rec <= 0% ou >= 100%) ganham cor propria.
+        eps = 1e-4
         dados_rec = indicadores[[coluna_x, 'I_rec']].dropna().copy()
         dados_rec['logit_I_rec'] = logit(dados_rec['I_rec'])
         modelo = smf.ols(f'logit_I_rec ~ {coluna_x}', data=dados_rec).fit()
 
-        dentro_limite = dados_rec['logit_I_rec'].abs() <= 6
-        n_omitidos = (~dentro_limite).sum()
+        pct = dados_rec['I_rec'] / 100.0
+        dados_rec['faixa'] = np.where(
+            pct >= 1 - eps, 'I_rec ≥ 100%', np.where(pct <= eps, 'I_rec ≤ 0%', '0% < I_rec < 100%')
+        )
+        rng = np.random.default_rng(42)
+        extremo = dados_rec['faixa'] != '0% < I_rec < 100%'
+        dados_rec['logit_exibido'] = dados_rec['logit_I_rec'] + np.where(
+            extremo, rng.uniform(-0.35, 0.35, len(dados_rec)), 0.0
+        )
 
         fig_disp = px.scatter(
-            dados_rec[dentro_limite], x=coluna_x, y='logit_I_rec',
-            opacity=0.4, labels={coluna_x: coluna_x, 'logit_I_rec': 'logit(I_rec)'},
+            dados_rec, x=coluna_x, y='logit_exibido', color='faixa', opacity=0.5,
+            color_discrete_map={'0% < I_rec < 100%': '#2c6e91', 'I_rec ≥ 100%': '#2e8b57', 'I_rec ≤ 0%': '#d9822b'},
+            labels={coluna_x: coluna_x, 'logit_exibido': 'logit(I_rec)', 'faixa': ''},
         )
         x_linha = np.linspace(dados_rec[coluna_x].min(), dados_rec[coluna_x].max(), 100)
         y_linha = modelo.params['Intercept'] + modelo.params[coluna_x] * x_linha
-        fig_disp.add_scatter(x=x_linha, y=y_linha, mode='lines', name='Reta ajustada (logit)')
+        fig_disp.add_scatter(x=x_linha, y=y_linha, mode='lines', name='Reta ajustada',
+                             line={'color': '#c0392b', 'width': 3})
         st.plotly_chart(fig_disp, width='stretch')
 
-        if n_omitidos > 0:
-            st.caption(
-                f"{n_omitidos} município(s) com I_rec muito fora de [0%, 100%] "
-                f"omitidos do gráfico para legibilidade (ver Seção 4.6 do TCC)."
-            )
+        contagem = dados_rec['faixa'].value_counts()
         st.caption(
             f"β₁ = {modelo.params[coluna_x]:.3f}  |  R² = {modelo.rsquared:.4f}  |  "
-            f"p = {modelo.pvalues[coluna_x]:.2e}"
+            f"p = {modelo.pvalues[coluna_x]:.2e}  |  "
+            f"{int(contagem.get('I_rec ≥ 100%', 0))} municípios com I_rec ≥ 100%, "
+            f"{int(contagem.get('I_rec ≤ 0%', 0))} com I_rec ≤ 0% e "
+            f"{int(contagem.get('0% < I_rec < 100%', 0))} intermediários. "
+            f"Valores fora de (0%, 100%) foram truncados em ±{np.log((1 - eps) / eps):.2f} (ε = 10⁻⁴); "
+            f"a magnitude de β₁ depende de ε (ver Seção 3.8.2 do TCC)."
         )
 
 # ---------------------------------------------------------------------------
