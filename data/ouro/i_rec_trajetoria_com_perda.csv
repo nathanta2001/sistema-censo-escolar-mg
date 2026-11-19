@@ -1,0 +1,5 @@
+trajetoria,criterio,n,pct_com_perda
+continuou_caindo,I_rec < 0,344,53.66614664586583
+sem_variacao,I_rec = 0,1,0.15600624024961
+recuperacao_parcial,0 < I_rec < 100,150,23.400936037441497
+recuperacao_plena,I_rec >= 100,146,22.776911076443056
