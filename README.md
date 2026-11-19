@@ -45,6 +45,8 @@ O projeto segue a separação em camadas Medalhão:
 * **`src/visualizacao.py`**: Geração de mapas coropléticos regionais (I<sub>rec</sub>: mediana dos municípios com perda; mapa próprio, em cinza, da proporção de municípios sem perda) e gráficos de dispersão/LOWESS.
 * **`Dashboard.py`**: Interface web analítica construída em Streamlit.
 * **`tests/`**: Testes automatizados (pytest) do I<sub>rec</sub>, de `teve_perda` e do filtro de sensibilidade.
+* **`scripts/`**: Scripts de documentação da base: `listar_variaveis.py` (tabela das variáveis selecionadas) e `contar_base_por_ano.py` (registros e colunas por ano, da Bronze à Prata).
+* **`docs/`**: Saídas desses scripts: `variaveis_utilizadas.csv` e `contagem_base_por_ano.csv`.
 
 ### Principais saídas da camada Ouro (`data/ouro/`, em `.csv` e `.parquet`)
 
@@ -57,16 +59,18 @@ O projeto segue a separação em camadas Medalhão:
 | `i_rec_sem_perda_resumo`, `i_rec_sem_perda_por_porte`, `i_rec_sem_perda_por_regiao` | Municípios sem perda: contagem, porte e região |
 | `sensibilidade_i_rec_{descritiva,correlacoes}_{perda,m2019}` | Análise de sensibilidade do I<sub>rec</sub> |
 | `i_ead_spearman_variantes`, `sensibilidade_i_ere_escolas` | I<sub>EAD</sub> contínuo, binário e só entre I<sub>EAD</sub> > 0; I<sub>ERE</sub> excluindo municípios com ≤ 2 escolas |
+| `serie_matriculas_regiao`, `serie_matriculas_dependencia` | Séries anuais de matrículas (2017–2024) por região intermediária e por município e dependência administrativa |
 
 ---
 
 ## 🛠️ Tecnologias Utilizadas
 
 * **Linguagem:** Python 3.13
-* **Manipulação e Engenharia de Dados:** `pandas`, `pyarrow`, `fastparquet`, `openpyxl`
+* **Manipulação e Engenharia de Dados:** `pandas`, `pyarrow`, `openpyxl`
 * **Computação Estatística e Modelagem:** `scipy`, `statsmodels`, `numpy`
 * **Análise Espacial e Visualização:** `geopandas`, `plotly`, `matplotlib`, `seaborn`
-* **Deploy e Aplicação Web:** `streamlit`, `streamlit-cloud`
+* **Aplicação Web:** `streamlit` (hospedagem no Streamlit Community Cloud)
+* **Rede e Extração:** `requests`, `certifi`, `truststore`
 
 ---
 
@@ -74,7 +78,7 @@ O projeto segue a separação em camadas Medalhão:
 
 ### 1. Pré-requisitos
 * Git instalado
-* Python 3.10 ou superior
+* Python 3.11 ou superior (testado com Python 3.13.7)
 
 ### 2. Clonar o Repositório e Configurar Ambiente
 ```bash
@@ -90,8 +94,11 @@ python -m venv .venv
 # Linux/macOS:
 source .venv/bin/activate
 
-# Instalar dependências
+# Instalar dependências (diretas, com versões fixadas)
 pip install -r requirements.txt
+
+# Ou, para recriar exatamente o ambiente que gerou as saídas:
+# pip install -r requirements-lock.txt
 ```
 
 ### 3. Executar o Dashboard
@@ -122,10 +129,17 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+### 6. (Opcional) Documentação da base
+Requer a camada Bronze em `data/bronze/`. O dicionário de dados do INEP não acompanha o repositório; informe o diretório com as pastas `microdados_censo_escolar_<ano>` baixadas do INEP:
+```bash
+python scripts/listar_variaveis.py --dicionarios <dir_microdados_inep>
+python scripts/contar_base_por_ano.py --microdados-inep <dir_microdados_inep>   # o argumento é opcional (confere o md5)
+```
+
 ---
 
 ## 📌 Reprodutibilidade e Versionamento
 
 O código e os dados derivados deste trabalho seguem princípios de ciência aberta:
-* As versões estáveis do pipeline e o estado da entrega acadêmica estão demarcados com tags Git (ex.: `v1.0.0`).
-* As dependências e requisitos de compilação estão descritos em `requirements.txt`.
+* As versões estáveis do pipeline estão demarcadas com tags Git; a versão atual é a `v1.1.0`.
+* As dependências diretas, com versões exatas, estão em `requirements.txt`; o ambiente completo (`pip freeze`), em `requirements-lock.txt`; as dependências de teste, em `requirements-dev.txt`.
