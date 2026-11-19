@@ -17,7 +17,7 @@ O painel interativo está publicado e acessível publicamente via Streamlit Comm
 ## 📊 Principais Indicadores Desenvolvidos
 
 * **I<sub>imp</sub> (Indicador de Impacto):** Mede a variação percentual de matrículas entre o período pré-pandêmico (2019) e o pico da pandemia (2021).
-* **I<sub>rec</sub> (Indicador de Recuperação):** Avalia a taxa de recomposição das matrículas em 2024 em relação à perda sofrida entre 2019 e 2021.
+* **I<sub>rec</sub> (Indicador de Recuperação):** Avalia a taxa de recomposição das matrículas em 2024 em relação à perda sofrida entre 2019 e 2021: I<sub>rec</sub> = (M2024 − M2021) / (M2019 − M2021) × 100. É definido **apenas para municípios com perda** (M2021 < M2019, coluna `teve_perda = True`). Os municípios sem perda (M2021 ≥ M2019) permanecem na tabela Ouro com `teve_perda = False` e `I_rec` vazio (NaN), ficam fora das correlações, regressões e da análise de sensibilidade do I<sub>rec</sub> e são descritos à parte (`i_rec_sem_perda_*`).
 * **I<sub>EAD</sub> (Indicador de EAD):** Proporção de matrículas formalmente registradas na modalidade a distância no Censo Escolar 2021.
 * **I<sub>ERE</sub> (Mediação Remota de Emergência):** Média de dias de ensino remoto declarados pelas escolas nos anos iniciais do Ensino Fundamental (pesquisa suplementar COVID-19/Inep).
 * **ICT (Índice de Capacidade Tecnológica):** Métrica agregada da infraestrutura das escolas (computadores, internet para aprendizagem e banda larga).
@@ -40,10 +40,23 @@ O projeto segue a separação em camadas Medalhão:
 * **`src/transform.py`**: Leitura em chunks, filtro territorial (MG / código `31`), tipagem de baixo consumo de memória e geração da camada Prata (`.parquet`).
 * **`src/analysis.py`**: Cálculo de indicadores municipais (I_imp, I_rec, I_EAD, ICT) e consolidação da camada Ouro.
 * **`src/pesquisa_pandemia.py`**: Ingestão da Pesquisa de Resposta Educacional à Pandemia do Inep para cálculo do I_ERE.
-* **`src/stats.py`**: Testes de normalidade, correlações (Pearson/Spearman com bootstrap e correção de Bonferroni) e modelos de regressão.
-* **`src/sensibilidade.py`**: Análise de robustez do indicador de recuperação e controle por porte municipal.
-* **`src/visualizacao.py`**: Geração de mapas coropléticos regionais e gráficos de dispersão/LOWESS.
+* **`src/stats.py`**: Testes de normalidade, correlações (Pearson/Spearman com bootstrap de 1.000 reamostras, seed 42, e correção de Bonferroni, α* = 0,005), regressões OLS e logit truncado (ε = 10⁻⁴) do I<sub>rec</sub>, robustez de ε, regressão logística de recuperação plena (I<sub>rec</sub> ≥ 100), controle por porte (log M2019) e descrição dos grupos com e sem perda. Toda análise do I<sub>rec</sub> usa apenas `teve_perda == True`.
+* **`src/sensibilidade.py`**: Robustez do I<sub>rec</sub> a perdas pequenas: filtro pela perda real (M2019 − M2021) ≥ corte, com cortes de 20, 50, 100 e 200 matrículas, e critério alternativo por M2019.
+* **`src/visualizacao.py`**: Geração de mapas coropléticos regionais (I<sub>rec</sub>: mediana dos municípios com perda; mapa próprio, em cinza, da proporção de municípios sem perda) e gráficos de dispersão/LOWESS.
 * **`Dashboard.py`**: Interface web analítica construída em Streamlit.
+* **`tests/`**: Testes automatizados (pytest) do I<sub>rec</sub>, de `teve_perda` e do filtro de sensibilidade.
+
+### Principais saídas da camada Ouro (`data/ouro/`, em `.csv` e `.parquet`)
+
+| Arquivo | Conteúdo |
+|---|---|
+| `indicadores_municipios` | Indicadores por município (inclui `teve_perda` e `n_escolas_ere`) |
+| `matriz_correlacoes`, `regressoes_i_rec` | Correlações dos 10 pares e regressões dos preditores significativos de I<sub>rec</sub> |
+| `i_rec_robustez_epsilon`, `i_rec_logistica_recuperacao_plena`, `controle_porte` | Robustez de ε, regressão logística (com e sem log M2019) e controle por porte |
+| `i_rec_descritiva_por_grupo`, `i_rec_trajetoria_com_perda` | I<sub>rec</sub> por grupo e trajetória dos municípios com perda |
+| `i_rec_sem_perda_resumo`, `i_rec_sem_perda_por_porte`, `i_rec_sem_perda_por_regiao` | Municípios sem perda: contagem, porte e região |
+| `sensibilidade_i_rec_{descritiva,correlacoes}_{perda,m2019}` | Análise de sensibilidade do I<sub>rec</sub> |
+| `i_ead_spearman_variantes`, `sensibilidade_i_ere_escolas` | I<sub>EAD</sub> contínuo, binário e só entre I<sub>EAD</sub> > 0; I<sub>ERE</sub> excluindo municípios com ≤ 2 escolas |
 
 ---
 
@@ -92,15 +105,21 @@ Para reproduzir a extração dos microdados brutos e o recálculo dos indicadore
 1. Certifique-se de que o arquivo da pesquisa suplementar esteja em `data/externos/Questionario_Resposta_Educacional_a_Pandemia_de_Covid_19_2ed.xlsx`.
 2. Execute o pipeline:
 ```bash
-# Baixar microdados do Inep (camada Bronze)
-python -m src.extract
+# Baixa os microdados (Bronze), gera a Prata, os indicadores e a análise
+# estatística na camada Ouro
+python main.py
 
-# Processar camada Prata e gerar camada Ouro com os indicadores
-python -m src.analysis
+# Análise de sensibilidade do I_rec
+python analise_sensibilidade.py
 
-# Executar análises estatísticas e gráficos
-python -m src.stats
-python -m src.visualizacao
+# Gráficos e mapas (data/ouro/graficos/)
+python gerar_graficos.py
+```
+
+### 5. Testes
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 ---
