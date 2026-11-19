@@ -8,6 +8,8 @@ import warnings
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patheffects
+from matplotlib.patches import Patch
 import pandas as pd
 import seaborn as sns
 import statsmodels.formula.api as smf
@@ -17,6 +19,10 @@ from src.config import OURO_DIR, SHAPEFILE_REGIOES_PATH
 sns.set_theme(style="whitegrid", context="paper", font_scale=1.05)
 
 DIR_GRAFICOS = os.path.join(OURO_DIR, 'graficos')
+
+# Cinza usado para municipios sem perda (I_rec indefinido) e regioes sem dado.
+COR_SEM_PERDA = '#9e9e9e'
+COR_SEM_DADO = '#dddddd'
 
 PARES_IMP_PARA_PLOTAR = [
     ('I_EAD', 'I_imp', 'I_EAD (%)', 'I_imp (%)', 'Intensidade de matrícula EAD (2021) x Impacto'),
@@ -103,7 +109,9 @@ def plot_dispersao_zero_inflada(df, coluna_x, rotulo_x, titulo, caminho_saida,
 def plot_dispersao_rec_logit(df, coluna_x, rotulo_x, titulo, caminho_saida, eps=1e-4) -> dict:
     """Dispersao de logit(I_rec) com a reta OLS ajustada (modelo da Secao 4.6).
 
-    TODOS os municipios sao exibidos. Como I_rec nao e limitado a [0, 100]
+    Sao exibidos todos os municipios COM PERDA entre 2019 e 2021
+    (teve_perda == True); os sem perda tem I_rec indefinido (NaN) e ficam
+    fora, como nas correlacoes e regressoes. Como I_rec nao e limitado a [0, 100]
     (pode ser negativo ou superior a 100%), a transformacao logit so e
     aplicada apos truncar I_rec/100 em [eps, 1-eps]. Os municipios com
     I_rec <= 0% e >= 100% ficam, portanto, nas faixas extremas (+/- ln((1-eps)/eps),
@@ -111,7 +119,8 @@ def plot_dispersao_rec_logit(df, coluna_x, rotulo_x, titulo, caminho_saida, eps=
     pequena dispersao vertical, em vez de omitidos, para que a reta ajustada
     (que usa todos os pontos) seja compativel com o que se ve no grafico.
     """
-    dados = df[[coluna_x, 'I_rec']].dropna().copy()
+    com_perda = df[df['teve_perda'].astype(bool)] if 'teve_perda' in df.columns else df
+    dados = com_perda[[coluna_x, 'I_rec']].dropna().copy()
     dados['logit_I_rec'] = _logit(dados['I_rec'])
 
     modelo = smf.ols(f'logit_I_rec ~ {coluna_x}', data=dados).fit()
@@ -139,7 +148,7 @@ def plot_dispersao_rec_logit(df, coluna_x, rotulo_x, titulo, caminho_saida, eps=
     ax.set_ylim(-limite - 1, limite + 1)
     ax.set_xlabel(rotulo_x + "\n" + rf"$\beta_1$ = {beta1:.3f}   $R^2$ = {r2:.4f}   p = {p_valor:.1e}")
     ax.set_ylabel('logit(I_rec)')
-    ax.set_title(titulo, fontsize=11)
+    ax.set_title(f'{titulo}\nMunicípios com perda entre 2019 e 2021 (n = {len(dados)})', fontsize=11)
     ax.legend(fontsize=7, loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False)
     fig.tight_layout()
     fig.savefig(caminho_saida, bbox_inches='tight')
@@ -279,7 +288,11 @@ def plot_mapa_coropletico(df_municipios: pd.DataFrame, coluna_indicador: str, ti
                            caminho_saida: str, cmap: str = 'RdYlGn',
                            ponderar_por_matricula: bool = False,
                            agregacao: str = 'mean',
-                           centro_zero: bool = True) -> None:
+                           centro_zero: bool = True,
+                           rotulos_extra: dict = None,
+                           legenda_extra: list = None,
+                           rotulo_escala: str = None,
+                           vmin_fixo: float = None) -> None:
     """Gera um mapa coropletico das Regioes Geograficas Intermediarias de
     MG, coloridas de acordo com a agregacao do indicador informado (ver
     `_agregar_indicador_por_regiao` para o significado de `agregacao`).
@@ -288,6 +301,12 @@ def plot_mapa_coropletico(df_municipios: pd.DataFrame, coluna_indicador: str, ti
     I_imp, onde 0 e um valor de referencia natural -- sem variacao). Para
     I_rec, onde 100 e o valor de referencia (recuperacao plena), ou para
     variaveis sem um zero natural (ICT, percentuais), usar centro_zero=False.
+
+    `rotulos_extra`: dict cod_regiao_interm -> texto acrescentado ao rotulo
+    da regiao (ex.: contagem de municipios sem perda no mapa do I_rec).
+    `legenda_extra`: lista de (cor, texto) desenhada como legenda propria.
+    Regioes sem dado sao sempre pintadas de cinza claro e, se existirem,
+    ganham entrada propria na legenda.
     """
     gdf_regioes = _carregar_shapefile_regioes()
     indicador_regional = _agregar_indicador_por_regiao(
@@ -296,13 +315,16 @@ def plot_mapa_coropletico(df_municipios: pd.DataFrame, coluna_indicador: str, ti
 
     gdf = gdf_regioes.merge(indicador_regional, on='cod_regiao_interm', how='left')
 
-    if gdf[coluna_indicador].isna().any():
-        faltando = gdf.loc[gdf[coluna_indicador].isna(), 'NM_RGINT'].tolist()
+    sem_dado = gdf[coluna_indicador].isna()
+    if sem_dado.any():
+        faltando = gdf.loc[sem_dado, 'NM_RGINT'].tolist()
         print(f"AVISO: regioes sem dado para '{coluna_indicador}': {faltando}")
 
     fig, ax = plt.subplots(figsize=(8, 7), dpi=300)
 
     vmin, vmax = gdf[coluna_indicador].min(), gdf[coluna_indicador].max()
+    if vmin_fixo is not None:
+        vmin = vmin_fixo
     if centro_zero:
         limite = max(abs(vmin), abs(vmax))
         vmin, vmax = -limite, limite
@@ -310,15 +332,27 @@ def plot_mapa_coropletico(df_municipios: pd.DataFrame, coluna_indicador: str, ti
     gdf.plot(
         column=coluna_indicador, cmap=cmap, linewidth=0.6, edgecolor='#555555',
         ax=ax, legend=True, vmin=vmin, vmax=vmax,
-        missing_kwds={'color': '#dddddd', 'label': 'Sem dado'},
-        legend_kwds={'shrink': 0.6, 'label': coluna_indicador},
+        missing_kwds={'color': COR_SEM_DADO, 'label': 'Sem dado'},
+        legend_kwds={'shrink': 0.6, 'label': rotulo_escala or coluna_indicador},
     )
 
     for _, linha in gdf.iterrows():
         centroide = linha.geometry.centroid
+        texto = linha['NM_RGINT']
+        if rotulos_extra and linha['cod_regiao_interm'] in rotulos_extra:
+            texto = f"{texto}\n{rotulos_extra[linha['cod_regiao_interm']]}"
         ax.annotate(
-            linha['NM_RGINT'], xy=(centroide.x, centroide.y), ha='center', fontsize=6,
-            color='#222222',
+            texto, xy=(centroide.x, centroide.y), ha='center', fontsize=6,
+            color='#222222', path_effects=[patheffects.withStroke(linewidth=2, foreground='white')],
+        )
+
+    itens_legenda = list(legenda_extra or [])
+    if sem_dado.any():
+        itens_legenda.append((COR_SEM_DADO, 'Região sem dado'))
+    if itens_legenda:
+        ax.legend(
+            handles=[Patch(facecolor=cor, edgecolor='#555555', label=texto) for cor, texto in itens_legenda],
+            loc='lower left', fontsize=6, frameon=True,
         )
 
     ax.set_title(titulo, fontsize=12)
@@ -342,12 +376,45 @@ def gerar_mapas_coropleticos(df_indicadores: pd.DataFrame, diretorio_saida: str 
     )
     caminhos.append(caminho_imp)
 
+    # I_rec: mediana apenas dos municipios com perda. Os sem perda (I_rec
+    # indefinido) nao entram na cor; sao contados no rotulo de cada regiao e
+    # mostrados em um mapa proprio, em escala de cinza.
+    sem_perda = resumo_sem_perda_por_regiao(df_indicadores)
+    rotulos = {
+        cod: f"sem perda: {int(linha.n_sem_perda)} ({linha.pct_sem_perda:.0f}%)"
+        for cod, linha in sem_perda.set_index('cod_regiao_interm').iterrows()
+    }
+    n_com, n_sem = int(df_indicadores['teve_perda'].sum()), int((~df_indicadores['teve_perda'].astype(bool)).sum())
     caminho_rec = os.path.join(diretorio_saida, 'mapa_recuperacao_regiao.png')
     plot_mapa_coropletico(
-        df_indicadores, 'I_rec',
-        'Indicador de Recuperação (I_rec, mediana) por Região Intermediária',
+        df_indicadores[df_indicadores['teve_perda'].astype(bool)], 'I_rec',
+        f'Indicador de Recuperação (I_rec, mediana dos municípios com perda, n = {n_com})\n'
+        'por Região Intermediária',
         caminho_rec, cmap='RdYlGn', agregacao='median', centro_zero=False,
+        rotulos_extra=rotulos, rotulo_escala='I_rec (mediana, %)',
+        legenda_extra=[(COR_SEM_PERDA, f'Municípios sem perda (I_rec indefinido): {n_sem}, contados no rótulo')],
     )
     caminhos.append(caminho_rec)
 
+    caminho_sem = os.path.join(diretorio_saida, 'mapa_sem_perda_regiao.png')
+    plot_mapa_coropletico(
+        sem_perda, 'pct_sem_perda',
+        f'Municípios sem perda de matrículas entre 2019 e 2021 (n = {n_sem}, % por Região Intermediária)',
+        caminho_sem, cmap='Greys', agregacao='mean', centro_zero=False, vmin_fixo=0,
+        rotulos_extra=rotulos, rotulo_escala='% de municípios sem perda',
+    )
+    caminhos.append(caminho_sem)
+
     return caminhos
+
+
+def resumo_sem_perda_por_regiao(df_indicadores: pd.DataFrame) -> pd.DataFrame:
+    """Numero e % de municipios sem perda (teve_perda == False) por regiao."""
+    d = df_indicadores.assign(sem_perda=~df_indicadores['teve_perda'].astype(bool))
+    resumo = (
+        d.groupby('cod_regiao_interm', observed=True)
+        .agg(n_municipios=('sem_perda', 'size'), n_sem_perda=('sem_perda', 'sum'))
+        .reset_index()
+    )
+    resumo['pct_sem_perda'] = resumo['n_sem_perda'] / resumo['n_municipios'] * 100
+    return resumo

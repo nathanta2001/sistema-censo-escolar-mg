@@ -58,6 +58,30 @@ def calcular_indicador_impacto() -> pd.DataFrame:
     return base
 
 
+def calcular_i_rec(base: pd.DataFrame) -> pd.DataFrame:
+    """Calcula o Indicador de Recuperacao a partir das colunas M2019, M2021
+    e M2024 de `base` e devolve uma copia com as colunas `teve_perda` e
+    `I_rec`.
+
+        I_rec = (M2024 - M2021) / (M2019 - M2021) * 100
+
+    O indicador so e definido para municipios com perda entre 2019 e 2021
+    (M2021 < M2019, coluna booleana `teve_perda`). Para os demais
+    (M2021 >= M2019, incluindo M2021 == M2019, em que o denominador e zero)
+    nao ha perda a recuperar: I_rec fica NaN e `teve_perda` = False. Esses
+    municipios permanecem na tabela Ouro, mas ficam fora das correlacoes,
+    regressoes e da analise de sensibilidade do I_rec, e sao descritos a
+    parte (ver src/stats.py: descritiva_i_rec_por_grupo e
+    descrever_municipios_sem_perda).
+    """
+    base = base.copy()
+    denominador = base['M2019'] - base['M2021']
+    base['teve_perda'] = denominador > 0
+    numerador = base['M2024'] - base['M2021']
+    base['I_rec'] = (numerador / denominador.where(base['teve_perda'])) * 100
+    return base
+
+
 def calcular_indicador_recuperacao() -> pd.DataFrame:
     df_2019 = _agregar_matriculas_municipio(_carregar_prata(ANO_PRE_PANDEMIA))
     df_2019 = df_2019.rename(columns={'total_matriculas': 'M2019'})[COLUNAS_MUNICIPIO + ['M2019']]
@@ -70,13 +94,7 @@ def calcular_indicador_recuperacao() -> pd.DataFrame:
 
     base = df_2019.merge(df_2021, on='cod_municipio', how='inner')
     base = base.merge(df_2024, on='cod_municipio', how='inner')
-
-    denominador = base['M2019'] - base['M2021']
-    with np.errstate(divide='ignore', invalid='ignore'):
-        i_rec_bruto = ((base['M2024'] - base['M2021']) / denominador) * 100
-
-    base['I_rec'] = np.where(denominador <= 0, 100.0, i_rec_bruto)
-    return base
+    return calcular_i_rec(base)
 
 
 def calcular_indicador_ead(ano: int = ANO_PANDEMIA) -> pd.DataFrame:
@@ -164,12 +182,13 @@ def _anexar_indicador_ere(base: pd.DataFrame) -> pd.DataFrame:
             "em data/externos/ -- I_ERE nao sera calculado nesta execucao."
         )
         base['I_ERE'] = pd.NA
+        base['n_escolas_ere'] = pd.NA
         return base
 
 
 def gerar_indicadores_ouro() -> pd.DataFrame:
     impacto = calcular_indicador_impacto()
-    recuperacao = calcular_indicador_recuperacao()[['cod_municipio', 'M2024', 'I_rec']]
+    recuperacao = calcular_indicador_recuperacao()[['cod_municipio', 'M2024', 'teve_perda', 'I_rec']]
     ead = calcular_indicador_ead(ANO_PANDEMIA)[['cod_municipio', 'I_EAD']]
 
     infra_2019 = calcular_ict(ANO_PRE_PANDEMIA)[
