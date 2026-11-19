@@ -101,8 +101,16 @@ def calcular_indicador_ere() -> pd.DataFrame:
     declararam ter feito durante a suspensao das atividades presenciais,
     sem a ambiguidade de reclassificacao de matricula discutida na Secao
     2.4.2/3.8.3 do TCC.
+
+    Tambem devolve `n_escolas_ere`: numero de escolas de anos iniciais com
+    estrategia de mediacao declarada (MEDIACAO_FUND_AI), base da media. E
+    usado na analise de sensibilidade do I_ERE a municipios com poucas
+    escolas (src/stats.py: sensibilidade_i_ere_escolas).
     """
     df = carregar_indicador_ere()
-    return df[['cod_municipio', 'dias_mediacao_remota_ai']].rename(
-        columns={'dias_mediacao_remota_ai': 'I_ERE'}
+    saida = df[['cod_municipio', 'dias_mediacao_remota_ai', 'escolas_anos_iniciais_com_mediacao']].rename(
+        columns={'dias_mediacao_remota_ai': 'I_ERE', 'escolas_anos_iniciais_com_mediacao': 'n_escolas_ere'}
     )
+    saida['I_ERE'] = pd.to_numeric(saida['I_ERE'], errors='coerce')
+    saida['n_escolas_ere'] = pd.to_numeric(saida['n_escolas_ere'], errors='coerce')
+    return saida

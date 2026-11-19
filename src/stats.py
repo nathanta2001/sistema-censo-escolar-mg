@@ -292,6 +292,140 @@ def controle_porte(df: pd.DataFrame, preditores=PREDITORES_I_REC_TODOS) -> pd.Da
     return pd.DataFrame(linhas)
 
 
+# ---------------------------------------------------------------------------
+# Descricao dos grupos com e sem perda (I_rec)
+# ---------------------------------------------------------------------------
+def _grupo_perda(df: pd.DataFrame) -> pd.Series:
+    return df['teve_perda'].astype(bool).map({True: 'com_perda', False: 'sem_perda'})
+
+
+def descritiva_i_rec_por_grupo(df: pd.DataFrame) -> pd.DataFrame:
+    """Estatistica descritiva por grupo (com e sem perda entre 2019 e 2021).
+    Para o grupo sem perda o I_rec e NaN por definicao; o grupo e descrito
+    pelo porte (M2019), pelo I_imp e pela variacao 2021-2024 em %."""
+    d = df.copy()
+    d['grupo'] = _grupo_perda(d)
+    d['var_2021_2024_pct'] = (d['M2024'] - d['M2021']) / d['M2021'] * 100
+    linhas = []
+    for grupo, g in d.groupby('grupo'):
+        i_rec = g['I_rec'].dropna()
+        linhas.append({
+            'grupo': grupo, 'n': len(g), 'pct_municipios': len(g) / len(d) * 100,
+            'n_I_rec_valido': len(i_rec),
+            'media_I_rec': i_rec.mean(), 'desvio_padrao_I_rec': i_rec.std(),
+            'min_I_rec': i_rec.min(), 'q1_I_rec': i_rec.quantile(0.25), 'mediana_I_rec': i_rec.median(),
+            'q3_I_rec': i_rec.quantile(0.75), 'max_I_rec': i_rec.max(),
+            'mediana_M2019': g['M2019'].median(), 'media_I_imp': g['I_imp'].mean(),
+            'mediana_I_imp': g['I_imp'].median(), 'mediana_var_2021_2024_pct': g['var_2021_2024_pct'].median(),
+        })
+    return pd.DataFrame(linhas)
+
+
+def trajetoria_municipios_com_perda(df: pd.DataFrame) -> pd.DataFrame:
+    """Classifica os municipios com perda pela trajetoria 2021-2024:
+    continuou caindo (I_rec < 0), sem variacao (I_rec = 0, M2024 = M2021),
+    recuperacao parcial (0 < I_rec < 100) e recuperacao plena (I_rec >= 100,
+    M2024 >= M2019)."""
+    i_rec = restringir_a_municipios_com_perda(df)['I_rec'].dropna()
+    categorias = [
+        ('continuou_caindo', 'I_rec < 0', i_rec < 0),
+        ('sem_variacao', 'I_rec = 0', i_rec == 0),
+        ('recuperacao_parcial', '0 < I_rec < 100', (i_rec > 0) & (i_rec < 100)),
+        ('recuperacao_plena', 'I_rec >= 100', i_rec >= 100),
+    ]
+    return pd.DataFrame([
+        {'trajetoria': nome, 'criterio': criterio, 'n': int(mascara.sum()),
+         'pct_com_perda': float(mascara.mean() * 100)}
+        for nome, criterio, mascara in categorias
+    ])
+
+
+def descrever_municipios_sem_perda(df: pd.DataFrame) -> dict:
+    """Contagem e proporcao dos municipios sem perda (M2021 >= M2019) e sua
+    distribuicao por porte (quartis de M2019) e por regiao intermediaria.
+    Inclui testes de diferenca de porte (Mann-Whitney) e de regiao
+    (qui-quadrado) entre os grupos com e sem perda."""
+    d = df.copy()
+    sem = ~d['teve_perda'].astype(bool)
+    com = ~sem
+    mw = scipy_stats.mannwhitneyu(d.loc[sem, 'M2019'], d.loc[com, 'M2019'])
+    tem_regiao = 'nome_regiao_interm' in d.columns
+    chi2_p = (float(scipy_stats.chi2_contingency(pd.crosstab(d['nome_regiao_interm'], sem))[1])
+              if tem_regiao else np.nan)
+    resumo = pd.DataFrame([{
+        'n_total': len(d), 'n_sem_perda': int(sem.sum()), 'pct_sem_perda': float(sem.mean() * 100),
+        'n_M2021_igual_M2019': int((d['M2021'] == d['M2019']).sum()),
+        'n_M2021_maior_M2019': int((d['M2021'] > d['M2019']).sum()),
+        'n_com_perda': int(com.sum()), 'pct_com_perda': float(com.mean() * 100),
+        'mediana_M2019_sem_perda': float(d.loc[sem, 'M2019'].median()),
+        'mediana_M2019_com_perda': float(d.loc[com, 'M2019'].median()),
+        'p_mann_whitney_M2019': float(mw.pvalue),
+        'p_qui_quadrado_regiao': chi2_p,
+    }])
+
+    d['sem_perda'] = sem
+    d['quartil_M2019'] = pd.qcut(d['M2019'], 4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
+    por_porte = (
+        d.groupby('quartil_M2019', observed=True)
+        .agg(M2019_min=('M2019', 'min'), M2019_max=('M2019', 'max'),
+             n_municipios=('M2019', 'size'), n_sem_perda=('sem_perda', 'sum'))
+        .reset_index()
+    )
+    por_porte['pct_sem_perda'] = por_porte['n_sem_perda'] / por_porte['n_municipios'] * 100
+    por_porte['quartil_M2019'] = por_porte['quartil_M2019'].astype(str)
+
+    por_regiao = pd.DataFrame()
+    if tem_regiao:
+        por_regiao = (
+            d.groupby(['cod_regiao_interm', 'nome_regiao_interm'], observed=True)
+            .agg(n_municipios=('sem_perda', 'size'), n_sem_perda=('sem_perda', 'sum'))
+            .reset_index()
+        )
+        por_regiao['pct_sem_perda'] = por_regiao['n_sem_perda'] / por_regiao['n_municipios'] * 100
+        por_regiao = por_regiao.sort_values('pct_sem_perda').reset_index(drop=True)
+    return {'resumo': resumo, 'por_porte': por_porte, 'por_regiao': por_regiao}
+
+
+# ---------------------------------------------------------------------------
+# Variantes do I_EAD e sensibilidade do I_ERE
+# ---------------------------------------------------------------------------
+def _spearman_com_ic(x: pd.Series, y: pd.Series) -> dict:
+    xa, ya = x.to_numpy(dtype=float), y.to_numpy(dtype=float)
+    r, p = scipy_stats.spearmanr(xa, ya)
+    ic_inf, ic_sup = bootstrap_ic_correlacao(xa, ya, 'spearman')
+    return {'n': len(xa), 'r': float(r), 'ic_95_inferior': ic_inf, 'ic_95_superior': ic_sup, 'p_valor': float(p)}
+
+
+def spearman_i_ead_variantes(df: pd.DataFrame) -> pd.DataFrame:
+    """Spearman do I_EAD com o I_imp em tres versoes: I_EAD continuo (todos),
+    I_EAD binario (presenca de EAD, todos) e I_EAD continuo apenas entre os
+    municipios com I_EAD > 0. Mostra quanto da correlacao vem do contraste
+    entre zeros e nao zeros (a maioria dos municipios tem I_EAD = 0)."""
+    d = df[['I_EAD', 'I_imp']].dropna()
+    pos = d['I_EAD'] > 0
+    variantes = [
+        ('continuo_todos', d['I_EAD'], d['I_imp']),
+        ('binario_presenca_ead', pos.astype(int), d['I_imp']),
+        ('continuo_apenas_I_EAD_maior_0', d.loc[pos, 'I_EAD'], d.loc[pos, 'I_imp']),
+    ]
+    return pd.DataFrame([{'variante': nome, **_spearman_com_ic(x, y)} for nome, x, y in variantes])
+
+
+def sensibilidade_i_ere_escolas(df: pd.DataFrame, min_escolas: int = 3) -> pd.DataFrame:
+    """Spearman do I_ERE com o I_imp com todos os municipios com I_ERE e
+    excluindo aqueles cuja media se baseia em 2 escolas ou menos
+    (n_escolas_ere < 3)."""
+    if not {'I_ERE', 'I_imp', 'n_escolas_ere'}.issubset(df.columns):
+        return pd.DataFrame()
+    d = df[['I_ERE', 'I_imp', 'n_escolas_ere']].dropna()
+    filtrado = d[d['n_escolas_ere'] >= min_escolas]
+    return pd.DataFrame([
+        {'recorte': 'todos_com_I_ERE', 'municipios_excluidos': 0, **_spearman_com_ic(d['I_ERE'], d['I_imp'])},
+        {'recorte': f'n_escolas_ere >= {min_escolas}', 'municipios_excluidos': len(d) - len(filtrado),
+         **_spearman_com_ic(filtrado['I_ERE'], filtrado['I_imp'])},
+    ])
+
+
 def executar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
     matriz = calcular_matriz_correlacoes(df_indicadores)
     regressoes = ajustar_regressoes_significativas(df_indicadores, matriz)
@@ -301,6 +435,11 @@ def executar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
         'robustez_epsilon': robustez_epsilon_logit(df_indicadores),
         'logistica': regressao_logistica_recuperacao_plena(df_indicadores),
         'controle_porte': controle_porte(df_indicadores),
+        'descritiva_por_grupo': descritiva_i_rec_por_grupo(df_indicadores),
+        'trajetoria': trajetoria_municipios_com_perda(df_indicadores),
+        'sem_perda': descrever_municipios_sem_perda(df_indicadores),
+        'i_ead_variantes': spearman_i_ead_variantes(df_indicadores),
+        'i_ere_escolas': sensibilidade_i_ere_escolas(df_indicadores),
     }
 
 
@@ -312,4 +451,12 @@ def executar_e_salvar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
     salvar_camada_ouro(resultado['robustez_epsilon'], 'i_rec_robustez_epsilon')
     salvar_camada_ouro(resultado['logistica'], 'i_rec_logistica_recuperacao_plena')
     salvar_camada_ouro(resultado['controle_porte'], 'controle_porte')
+    salvar_camada_ouro(resultado['descritiva_por_grupo'], 'i_rec_descritiva_por_grupo')
+    salvar_camada_ouro(resultado['trajetoria'], 'i_rec_trajetoria_com_perda')
+    salvar_camada_ouro(resultado['sem_perda']['resumo'], 'i_rec_sem_perda_resumo')
+    salvar_camada_ouro(resultado['sem_perda']['por_porte'], 'i_rec_sem_perda_por_porte')
+    salvar_camada_ouro(resultado['sem_perda']['por_regiao'], 'i_rec_sem_perda_por_regiao')
+    salvar_camada_ouro(resultado['i_ead_variantes'], 'i_ead_spearman_variantes')
+    if not resultado['i_ere_escolas'].empty:
+        salvar_camada_ouro(resultado['i_ere_escolas'], 'sensibilidade_i_ere_escolas')
     return resultado

@@ -182,6 +182,7 @@ def _anexar_indicador_ere(base: pd.DataFrame) -> pd.DataFrame:
             "em data/externos/ -- I_ERE nao sera calculado nesta execucao."
         )
         base['I_ERE'] = pd.NA
+        base['n_escolas_ere'] = pd.NA
         return base
 
 
