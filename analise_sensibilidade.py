@@ -1,5 +1,5 @@
 """
-Roda a analise de sensibilidade do I_rec (Secao 3.8.3/4.6 do TCC) sobre os
+Roda a analise de sensibilidade do I_rec sobre os
 dados reais ja processados na camada Ouro.
 
 Uso: python analise_sensibilidade.py
@@ -21,9 +21,9 @@ def main():
 
     df = pd.read_parquet(caminho)
 
-    if not {'M2019', 'M2021'}.issubset(df.columns):
+    if not {'M2019', 'M2021', 'teve_perda'}.issubset(df.columns):
         print(
-            "AVISO: as colunas M2019/M2021 nao estao na tabela de indicadores salva. "
+            "AVISO: as colunas M2019/M2021/teve_perda nao estao na tabela de indicadores salva. "
             "Verifique se gerar_indicadores_ouro() em src/analysis.py inclui essas "
             "colunas no merge final (necessarias para a analise de sensibilidade)."
         )
@@ -34,12 +34,13 @@ def main():
     print("\n=== Estatística descritiva de I_rec por limiar de M2019 ===")
     print(resultado['descritiva_m2019'].to_string(index=False))
 
-    print("\n=== Estatística descritiva de I_rec por limiar do denominador |M2019-M2021| ===")
-    print(resultado['descritiva_denominador'].to_string(index=False))
+    print("\n=== Estatística descritiva de I_rec por corte da perda real (M2019 - M2021) ===")
+    print(resultado['descritiva_perda'].to_string(index=False))
 
-    print("\n=== Correlações por limiar do denominador (preditores de I_rec) ===")
-    cols = ['limiar_denominador_abs', 'preditor', 'n', 'r', 'p_valor', 'significativo_bonferroni']
-    print(resultado['correlacoes_denominador'][cols].to_string(index=False))
+    print("\n=== Correlações por corte da perda real (preditores de I_rec) ===")
+    cols = ['limiar_perda', 'preditor', 'n', 'r', 'ic_95_inferior', 'ic_95_superior',
+            'p_valor', 'significativo_bonferroni']
+    print(resultado['correlacoes_perda'][cols].to_string(index=False))
 
 
 if __name__ == "__main__":
