@@ -21,9 +21,7 @@ adicional (Secao 3.8.3/4.6). Ela NAO substitui o calculo principal do I_rec
 sobre os 853 municipios, que permanece como definido na Secao 3.5.
 """
 
-import numpy as np
 import pandas as pd
-import statsmodels.formula.api as smf
 
 from src.stats import PARES_CORRELACAO, calcular_matriz_correlacoes
 
@@ -117,46 +115,15 @@ def correlacoes_por_denominador(df: pd.DataFrame, limiares=LIMIARES_DENOMINADOR)
     return pd.concat(linhas, ignore_index=True)
 
 
-from src.stats import PREDITORES_I_REC  # noqa: E402
-
-
-def regressao_logistica_recuperacao_plena(df: pd.DataFrame, preditores=PREDITORES_I_REC) -> pd.DataFrame:
-    """Regressao logistica com desfecho binario: recuperacao plena ou
-    superacao (I_rec >= 100%) contra as demais situacoes. Dispensa a
-    transformacao de I_rec e tem interpretacao direta: a razao de chances
-    (OR) e reportada por aumento de 1 desvio-padrao do preditor."""
-    linhas = []
-    for x in preditores:
-        if x not in df.columns:
-            continue
-        d = df[[x, 'I_rec']].dropna()
-        if d[x].std() == 0:
-            continue
-        dados = pd.DataFrame({
-            'x': ((d[x] - d[x].mean()) / d[x].std()).to_numpy(),
-            'y': (d['I_rec'] >= 100).astype(int).to_numpy(),
-        })
-        m = smf.logit('y ~ x', data=dados).fit(disp=0)
-        ic = m.conf_int().loc['x']
-        linhas.append({
-            'preditor': x, 'n': int(m.nobs), 'pct_recuperacao_plena': float(dados['y'].mean() * 100),
-            'odds_ratio_por_dp': float(np.exp(m.params['x'])),
-            'or_ic95_inf': float(np.exp(ic[0])), 'or_ic95_sup': float(np.exp(ic[1])),
-            'p_valor': float(m.pvalues['x']),
-        })
-    return pd.DataFrame(linhas)
-
-
 def executar_analise_sensibilidade(df: pd.DataFrame) -> dict:
     """Executa a analise de sensibilidade completa (ambos os criterios) e
-    retorna os resultados prontos para exportar (a robustez do eps do logit
-    fica em src/stats.py)."""
+    retorna os resultados prontos para exportar. A robustez do eps do logit,
+    a regressao logistica e o controle por porte ficam em src/stats.py."""
     return {
         'descritiva_m2019': estatistica_descritiva_por_limiar(df),
         'correlacoes_m2019': correlacoes_por_limiar(df),
         'descritiva_denominador': estatistica_descritiva_por_denominador(df),
         'correlacoes_denominador': correlacoes_por_denominador(df),
-        'logistica_recuperacao_plena': regressao_logistica_recuperacao_plena(df),
     }
 
 

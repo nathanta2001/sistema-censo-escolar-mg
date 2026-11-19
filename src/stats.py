@@ -206,6 +206,92 @@ def robustez_epsilon_logit(df: pd.DataFrame, preditores=PREDITORES_I_REC, epsilo
     return pd.DataFrame(linhas)
 
 
+# ---------------------------------------------------------------------------
+# Recuperacao plena e controle pelo porte do municipio (apenas com perda)
+# ---------------------------------------------------------------------------
+PREDITORES_I_REC_TODOS = [p[1] for p in PARES_CORRELACAO if p[2] == 'I_rec']
+
+
+def _base_porte(df: pd.DataFrame) -> pd.DataFrame:
+    base = restringir_a_municipios_com_perda(df).copy()
+    base['log_m2019'] = np.log(base['M2019'])
+    return base
+
+
+def regressao_logistica_recuperacao_plena(df: pd.DataFrame, preditores=PREDITORES_I_REC_TODOS) -> pd.DataFrame:
+    """Regressao logistica de y = (I_rec >= 100), apenas nos municipios com
+    perda, sem e com controle de log(M2019). O preditor e padronizado (z) na
+    propria amostra, de modo que a razao de chances (OR) e por aumento de
+    1 desvio-padrao do preditor."""
+    base = _base_porte(df)
+    linhas = []
+    for x in preditores:
+        if x not in base.columns:
+            continue
+        d = base[[x, 'I_rec', 'log_m2019']].dropna()
+        if d[x].std() == 0:
+            continue
+        dados = pd.DataFrame({
+            'z': ((d[x] - d[x].mean()) / d[x].std()).to_numpy(),
+            'log_m2019': d['log_m2019'].to_numpy(),
+            'y': (d['I_rec'] >= 100).astype(int).to_numpy(),
+        })
+        for modelo, formula in (('sem_controle', 'y ~ z'), ('com_controle_porte', 'y ~ z + log_m2019')):
+            m = smf.logit(formula, data=dados).fit(disp=0)
+            ic = m.conf_int().loc['z']
+            linhas.append({
+                'preditor': x, 'modelo': modelo, 'n': int(m.nobs),
+                'n_recuperacao_plena': int(dados['y'].sum()),
+                'pct_recuperacao_plena': float(dados['y'].mean() * 100),
+                'odds_ratio_por_dp': float(np.exp(m.params['z'])),
+                'or_ic95_inf': float(np.exp(ic.iloc[0])), 'or_ic95_sup': float(np.exp(ic.iloc[1])),
+                'p_valor': float(m.pvalues['z']),
+            })
+    return pd.DataFrame(linhas)
+
+
+def controle_porte(df: pd.DataFrame, preditores=PREDITORES_I_REC_TODOS) -> pd.DataFrame:
+    """Verifica se as associacoes se mantem com o porte do municipio
+    (log das matriculas de 2019) como controle.
+
+    - I_rec (apenas com perda): OLS de logit(I_rec), eps = 1e-4, sem e com
+      log(M2019), para cada preditor de I_rec.
+    - I_imp (853 municipios): OLS de I_imp sobre a presenca de matricula EAD
+      (I_EAD > 0), sem e com log(M2019).
+    Reporta tambem o Spearman entre o preditor e log(M2019)."""
+    linhas = []
+
+    def _linha(desfecho, preditor, dados, y, x):
+        m0 = smf.ols(f'{y} ~ {x}', data=dados).fit()
+        m1 = smf.ols(f'{y} ~ {x} + log_m2019', data=dados).fit()
+        ic = m1.conf_int().loc[x]
+        rho, p_rho = scipy_stats.spearmanr(dados[x], dados['log_m2019'])
+        return {
+            'desfecho': desfecho, 'preditor': preditor, 'n': int(m1.nobs),
+            'beta1_sem_controle': float(m0.params[x]), 'p_sem_controle': float(m0.pvalues[x]),
+            'beta1_com_controle': float(m1.params[x]), 'p_com_controle': float(m1.pvalues[x]),
+            'ic95_inf_com_controle': float(ic.iloc[0]), 'ic95_sup_com_controle': float(ic.iloc[1]),
+            'beta_log_m2019': float(m1.params['log_m2019']), 'p_log_m2019': float(m1.pvalues['log_m2019']),
+            'spearman_preditor_log_m2019': float(rho), 'p_spearman_preditor_log_m2019': float(p_rho),
+        }
+
+    base = _base_porte(df)
+    for x in preditores:
+        if x not in base.columns:
+            continue
+        d = base[[x, 'I_rec', 'log_m2019']].dropna().copy()
+        d['logit_i_rec'] = logit_truncado(d['I_rec'])
+        linhas.append(_linha('logit(I_rec)', x, d, 'logit_i_rec', x))
+
+    if {'I_EAD', 'I_imp', 'M2019'}.issubset(df.columns):
+        d = df[['I_EAD', 'I_imp', 'M2019']].dropna().copy()
+        d['ead_presente'] = (d['I_EAD'] > 0).astype(int)
+        d['log_m2019'] = np.log(d['M2019'])
+        linhas.append(_linha('I_imp', 'I_EAD > 0 (presenca de EAD)', d, 'I_imp', 'ead_presente'))
+
+    return pd.DataFrame(linhas)
+
+
 def executar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
     matriz = calcular_matriz_correlacoes(df_indicadores)
     regressoes = ajustar_regressoes_significativas(df_indicadores, matriz)
@@ -213,6 +299,8 @@ def executar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
         'correlacoes': matriz,
         'regressoes': regressoes,
         'robustez_epsilon': robustez_epsilon_logit(df_indicadores),
+        'logistica': regressao_logistica_recuperacao_plena(df_indicadores),
+        'controle_porte': controle_porte(df_indicadores),
     }
 
 
@@ -222,4 +310,6 @@ def executar_e_salvar_analise_estatistica(df_indicadores: pd.DataFrame) -> dict:
     salvar_camada_ouro(resultado['correlacoes'], 'matriz_correlacoes')
     salvar_camada_ouro(resultado['regressoes'], 'regressoes_i_rec')
     salvar_camada_ouro(resultado['robustez_epsilon'], 'i_rec_robustez_epsilon')
+    salvar_camada_ouro(resultado['logistica'], 'i_rec_logistica_recuperacao_plena')
+    salvar_camada_ouro(resultado['controle_porte'], 'controle_porte')
     return resultado
