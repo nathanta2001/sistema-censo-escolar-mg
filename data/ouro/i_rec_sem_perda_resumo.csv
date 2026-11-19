@@ -1,0 +1,2 @@
+n_total,n_sem_perda,pct_sem_perda,n_M2021_igual_M2019,n_M2021_maior_M2019,n_com_perda,pct_com_perda,mediana_M2019_sem_perda,mediana_M2019_com_perda,p_mann_whitney_M2019,p_qui_quadrado_regiao
+853,212,24.85345838218054,5,207,641,75.14654161781947,1201.5,1888.0,6.793034093577343e-13,3.986743478324852e-09
