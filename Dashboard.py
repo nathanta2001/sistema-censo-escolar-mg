@@ -20,6 +20,7 @@ import os
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import statsmodels.formula.api as smf
 import streamlit as st
 
@@ -139,17 +140,28 @@ with aba1:
     )
     filtrado = indicadores[indicadores['nome_regiao_interm'].isin(regiao_sel)]
 
-    col1, col2, col3 = st.columns(3)
+    # I_rec so e definido para municipios com perda entre 2019 e 2021
+    # (teve_perda == True); os demais tem I_rec = NaN e sao contados a parte.
+    com_perda = filtrado['teve_perda'].astype(bool)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Municípios no filtro", len(filtrado))
     col2.metric("Média de I_imp", f"{filtrado['I_imp'].mean():.2f}%")
-    col3.metric("Mediana de I_rec", f"{filtrado['I_rec'].median():.2f}%")
+    col3.metric(
+        "Mediana de I_rec (com perda)",
+        f"{filtrado.loc[com_perda, 'I_rec'].median():.2f}%" if com_perda.any() else "—",
+    )
+    col4.metric(
+        "Sem perda (I_rec indefinido)",
+        f"{int((~com_perda).sum())} ({(~com_perda).mean() * 100:.1f}%)" if len(filtrado) else "—",
+    )
 
     colunas_tabela = [
-        c for c in ['nome_municipio', 'nome_regiao_interm', 'I_imp', 'I_rec',
+        c for c in ['nome_municipio', 'nome_regiao_interm', 'I_imp', 'teve_perda', 'I_rec',
                      'I_EAD', 'I_ERE', 'ICT_2019', 'ICT_2024']
         if c in filtrado.columns
     ]
     st.dataframe(filtrado[colunas_tabela], width='stretch', hide_index=True)
+    st.caption("I_rec vazio = município sem perda entre 2019 e 2021 (M2021 ≥ M2019): não há perda a recuperar.")
 
 # ---------------------------------------------------------------------------
 # Aba 2 — Evolução Temporal
@@ -267,10 +279,11 @@ with aba3:
         st.plotly_chart(fig_disp, width='stretch')
     else:
         # I_rec nao e limitado a [0, 100]: o logit usa I_rec/100 truncado em
-        # [eps, 1 - eps]. Todos os municipios sao exibidos; os que ficam nas
-        # faixas extremas (I_rec <= 0% ou >= 100%) ganham cor propria.
+        # [eps, 1 - eps]. Sao exibidos todos os municipios com perda; os que
+        # ficam nas faixas extremas (I_rec <= 0% ou >= 100%) ganham cor propria.
         eps = 1e-4
-        dados_rec = indicadores[[coluna_x, 'I_rec']].dropna().copy()
+        n_sem_perda = int((~indicadores['teve_perda'].astype(bool)).sum())
+        dados_rec = indicadores.loc[indicadores['teve_perda'].astype(bool), [coluna_x, 'I_rec']].dropna().copy()
         dados_rec['logit_I_rec'] = logit(dados_rec['I_rec'])
         modelo = smf.ols(f'logit_I_rec ~ {coluna_x}', data=dados_rec).fit()
 
@@ -301,7 +314,8 @@ with aba3:
             f"p = {modelo.pvalues[coluna_x]:.2e}  |  "
             f"{int(contagem.get('I_rec ≥ 100%', 0))} municípios com I_rec ≥ 100%, "
             f"{int(contagem.get('I_rec ≤ 0%', 0))} com I_rec ≤ 0% e "
-            f"{int(contagem.get('0% < I_rec < 100%', 0))} intermediários. "
+            f"{int(contagem.get('0% < I_rec < 100%', 0))} intermediários "
+            f"(apenas municípios com perda, n = {len(dados_rec)}; {n_sem_perda} sem perda ficam fora). "
             f"Valores fora de (0%, 100%) foram truncados em ±{np.log((1 - eps) / eps):.2f} (ε = 10⁻⁴); "
             f"a magnitude de β₁ depende de ε (ver Seção 3.8.2 do TCC)."
         )
@@ -309,26 +323,64 @@ with aba3:
 # ---------------------------------------------------------------------------
 # Aba 4 — Mapas
 # ---------------------------------------------------------------------------
+COR_SEM_PERDA = '#9e9e9e'
+OPCAO_SEM_PERDA = 'Municípios sem perda (%)'
+
+
 @st.cache_data
 def construir_mapa(indicador_mapa: str, assinatura):
-    agregacao = 'mean' if indicador_mapa == 'I_imp' else 'median'
+    """Mapa por regiao intermediaria.
 
-    regional = (
-        indicadores.groupby('cod_regiao_interm', observed=True)[indicador_mapa]
-        .agg(agregacao)
+    - I_imp: media de todos os municipios.
+    - I_rec: mediana apenas dos municipios com perda (teve_perda == True);
+      o numero e a % de municipios sem perda (I_rec indefinido) aparecem no
+      hover. Regioes sem nenhum municipio com perda ficam em cinza, com
+      legenda propria.
+    - Municipios sem perda (%): proporcao por regiao, em escala de cinza.
+    """
+    nomes_regiao = indicadores[['cod_regiao_interm', 'nome_regiao_interm']].drop_duplicates()
+    sem_perda = (
+        indicadores.assign(sem_perda=~indicadores['teve_perda'].astype(bool))
+        .groupby('cod_regiao_interm', observed=True)
+        .agg(n_municipios=('sem_perda', 'size'), n_sem_perda=('sem_perda', 'sum'))
         .reset_index()
     )
-    nomes_regiao = indicadores[['cod_regiao_interm', 'nome_regiao_interm']].drop_duplicates()
+    sem_perda['pct_sem_perda'] = sem_perda['n_sem_perda'] / sem_perda['n_municipios'] * 100
+
+    if indicador_mapa == OPCAO_SEM_PERDA:
+        regional, coluna, escala, rotulo = sem_perda, 'pct_sem_perda', 'Greys', '% sem perda'
+        meio = None
+    elif indicador_mapa == 'I_imp':
+        regional = indicadores.groupby('cod_regiao_interm', observed=True)['I_imp'].mean().reset_index()
+        regional = regional.merge(sem_perda, on='cod_regiao_interm', how='right')
+        coluna, escala, rotulo, meio = 'I_imp', 'RdYlGn', 'I_imp (média)', 0
+    else:
+        com_perda = indicadores[indicadores['teve_perda'].astype(bool)]
+        regional = com_perda.groupby('cod_regiao_interm', observed=True)['I_rec'].median().reset_index()
+        regional = regional.merge(sem_perda, on='cod_regiao_interm', how='right')
+        coluna, escala, rotulo, meio = 'I_rec', 'RdYlGn', 'I_rec (mediana, com perda)', None
     regional = regional.merge(nomes_regiao, on='cod_regiao_interm', how='left')
 
+    com_valor = regional[regional[coluna].notna()]
     fig_mapa = px.choropleth(
-        regional, geojson=geojson, locations='cod_regiao_interm',
+        com_valor, geojson=geojson, locations='cod_regiao_interm',
         featureidkey='properties.cod_regiao_interm',
-        color=indicador_mapa, color_continuous_scale='RdYlGn',
-        color_continuous_midpoint=0 if indicador_mapa == 'I_imp' else None,
+        color=coluna, color_continuous_scale=escala,
+        color_continuous_midpoint=meio,
+        range_color=(0, com_valor[coluna].max()) if indicador_mapa == OPCAO_SEM_PERDA else None,
         hover_name='nome_regiao_interm',
-        labels={indicador_mapa: f"{indicador_mapa} ({'média' if agregacao == 'mean' else 'mediana'})"},
+        hover_data={'n_sem_perda': True, 'pct_sem_perda': ':.1f', 'cod_regiao_interm': False},
+        labels={coluna: rotulo, 'n_sem_perda': 'Municípios sem perda', 'pct_sem_perda': '% sem perda'},
     )
+    sem_valor = regional[regional[coluna].isna()]
+    if not sem_valor.empty:
+        fig_mapa.add_trace(go.Choropleth(
+            geojson=geojson, locations=sem_valor['cod_regiao_interm'],
+            featureidkey='properties.cod_regiao_interm', z=[0] * len(sem_valor),
+            colorscale=[[0, COR_SEM_PERDA], [1, COR_SEM_PERDA]], showscale=False,
+            text=sem_valor['nome_regiao_interm'], hoverinfo='text',
+            name='Sem município com perda (I_rec indefinido)', showlegend=True,
+        ))
     fig_mapa.update_geos(fitbounds="locations", visible=False)
     fig_mapa.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=600)
     return fig_mapa
@@ -342,5 +394,14 @@ with aba4:
             "e colocado no caminho esperado (ver README)."
         )
     else:
-        indicador_mapa = st.radio("Indicador", ["I_imp", "I_rec"], horizontal=True)
+        indicador_mapa = st.radio("Indicador", ["I_imp", "I_rec", OPCAO_SEM_PERDA], horizontal=True)
         st.plotly_chart(construir_mapa(indicador_mapa, assinatura_ouro()), width='stretch')
+        if indicador_mapa != 'I_imp':
+            n_sem = int((~indicadores['teve_perda'].astype(bool)).sum())
+            st.caption(
+                f"I_rec é definido apenas para os municípios com perda entre 2019 e 2021 "
+                f"(n = {len(indicadores) - n_sem}). Os {n_sem} municípios sem perda "
+                "(M2021 ≥ M2019) não entram na mediana; seu número e sua proporção por "
+                "região aparecem ao passar o mouse e na opção "
+                f"“{OPCAO_SEM_PERDA}”, em escala de cinza."
+            )
