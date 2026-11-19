@@ -117,38 +117,7 @@ def correlacoes_por_denominador(df: pd.DataFrame, limiares=LIMIARES_DENOMINADOR)
     return pd.concat(linhas, ignore_index=True)
 
 
-# ---------------------------------------------------------------------------
-# Robustez da especificacao da regressao de I_rec (Secao 3.8.2)
-#
-# I_rec nao e limitado a [0, 100]: pode ser negativo ou superior a 100%. O
-# logit so existe em (0, 1); por isso a transformacao e aplicada apos truncar
-# I_rec/100 em [eps, 1 - eps]. Valores <= 0% ou >= 100% passam a ocupar os
-# extremos +/- ln((1 - eps)/eps) (cerca de 9,21 para eps = 1e-4), e a
-# magnitude de beta1 depende da escolha de eps. As duas analises abaixo
-# verificam (i) se sinal e significancia sobrevivem a outros valores de eps e
-# (ii) o que ocorre num desfecho binario, de interpretacao direta.
-# ---------------------------------------------------------------------------
-EPSILONS_LOGIT = [1e-2, 1e-3, 1e-4]
-PREDITORES_I_REC = ['ICT_2024', 'pct_estadual_2024', 'pct_urbana_2024']
-
-
-def robustez_epsilon_logit(df: pd.DataFrame, preditores=PREDITORES_I_REC, epsilons=EPSILONS_LOGIT) -> pd.DataFrame:
-    """Reajusta a regressao OLS de logit(I_rec) para varios valores do
-    recorte eps e reporta beta1, valor-p e R2 de cada um."""
-    linhas = []
-    for x in preditores:
-        if x not in df.columns:
-            continue
-        d = df[[x, 'I_rec']].dropna()
-        for eps in epsilons:
-            p = (d['I_rec'] / 100.0).clip(lower=eps, upper=1 - eps)
-            dados = pd.DataFrame({'x': d[x].to_numpy(), 'y': np.log(p / (1 - p)).to_numpy()})
-            m = smf.ols('y ~ x', data=dados).fit()
-            linhas.append({
-                'preditor': x, 'epsilon': eps, 'n': int(m.nobs),
-                'beta1': float(m.params['x']), 'p_valor': float(m.pvalues['x']), 'r2': float(m.rsquared),
-            })
-    return pd.DataFrame(linhas)
+from src.stats import PREDITORES_I_REC  # noqa: E402
 
 
 def regressao_logistica_recuperacao_plena(df: pd.DataFrame, preditores=PREDITORES_I_REC) -> pd.DataFrame:
@@ -180,14 +149,13 @@ def regressao_logistica_recuperacao_plena(df: pd.DataFrame, preditores=PREDITORE
 
 def executar_analise_sensibilidade(df: pd.DataFrame) -> dict:
     """Executa a analise de sensibilidade completa (ambos os criterios) e
-    retorna os resultados prontos para exportar (inclui a robustez da
-    especificacao logit e a regressao logistica de recuperacao plena)."""
+    retorna os resultados prontos para exportar (a robustez do eps do logit
+    fica em src/stats.py)."""
     return {
         'descritiva_m2019': estatistica_descritiva_por_limiar(df),
         'correlacoes_m2019': correlacoes_por_limiar(df),
         'descritiva_denominador': estatistica_descritiva_por_denominador(df),
         'correlacoes_denominador': correlacoes_por_denominador(df),
-        'robustez_epsilon_logit': robustez_epsilon_logit(df),
         'logistica_recuperacao_plena': regressao_logistica_recuperacao_plena(df),
     }
 
