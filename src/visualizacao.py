@@ -9,7 +9,9 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patheffects
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 import seaborn as sns
 import statsmodels.formula.api as smf
@@ -182,6 +184,19 @@ def gerar_todas_as_dispersoes(df_indicadores, diretorio_saida=DIR_GRAFICOS):
     return caminhos
 
 
+def _proporcao_ead(serie_dependencia):
+    """Proporcao de matriculas em EAD (% do total) por ano, por regiao
+    intermediaria e para o estado, somando matriculas antes de dividir."""
+    dados = serie_dependencia.dropna(subset=['nome_regiao_interm']).copy()
+
+    por_regiao = (dados.groupby(['ano', 'nome_regiao_interm'], observed=True)[['total_matriculas', 'matriculas_ead']]
+                  .sum().reset_index())
+    por_regiao['pct_ead'] = por_regiao['matriculas_ead'] / por_regiao['total_matriculas'] * 100
+    estado = dados.groupby('ano')[['total_matriculas', 'matriculas_ead']].sum().reset_index()
+    estado['pct_ead'] = estado['matriculas_ead'] / estado['total_matriculas'] * 100
+    return por_regiao, estado
+
+
 def plot_evolucao_ead(serie_dependencia, caminho_saida):
     """Evolucao da proporcao de matriculas em EAD (% do total de matriculas
     da educacao basica), por regiao intermediaria e para o estado (Objetivo
@@ -193,13 +208,7 @@ def plot_evolucao_ead(serie_dependencia, caminho_saida):
     if 'matriculas_ead' not in serie_dependencia.columns:
         raise ValueError("A serie nao tem a coluna 'matriculas_ead'. Regenere a "
                          "serie de matriculas por dependencia (analysis.py).")
-    dados = serie_dependencia.dropna(subset=['nome_regiao_interm']).copy()
-
-    por_regiao = (dados.groupby(['ano', 'nome_regiao_interm'], observed=True)[['total_matriculas', 'matriculas_ead']]
-                  .sum().reset_index())
-    por_regiao['pct_ead'] = por_regiao['matriculas_ead'] / por_regiao['total_matriculas'] * 100
-    estado = dados.groupby('ano')[['total_matriculas', 'matriculas_ead']].sum().reset_index()
-    estado['pct_ead'] = estado['matriculas_ead'] / estado['total_matriculas'] * 100
+    por_regiao, estado = _proporcao_ead(serie_dependencia)
 
     fig, ax = plt.subplots(figsize=(9, 5.5), dpi=300)
     paleta = sns.color_palette("husl", n_colors=por_regiao['nome_regiao_interm'].nunique())
@@ -213,6 +222,108 @@ def plot_evolucao_ead(serie_dependencia, caminho_saida):
     ax.set_title('Evolução da proporção de matrículas em EAD (2017-2024)', fontsize=11)
     ax.legend(title='Região Intermediária', bbox_to_anchor=(1.02, 1), loc='upper left',
               fontsize=7.5, title_fontsize=8)
+    fig.tight_layout()
+    fig.savefig(caminho_saida, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Salvo: {caminho_saida}")
+
+
+# Paleta Okabe-Ito (segura para daltonismo), em ordem fixa, e um marcador por linha.
+CORES_EAD = ['#0072B2', '#D55E00', '#009E73', '#CC79A7']
+MARCADORES_EAD = ['s', '^', 'D', 'v']
+COR_MG = '#222222'
+COR_MG_REFERENCIA = '#8C8C8C'
+NOMES_REGIAO_EXIBICAO = {'Juíz de Fora': 'Juiz de Fora'}  # grafia da fonte corrigida so no rotulo
+
+
+def _nome_regiao(nome: str) -> str:
+    return NOMES_REGIAO_EXIBICAO.get(nome, nome)
+
+
+def _formatar_percentual_eixo(ax) -> None:
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:.0f}%'))
+
+
+def selecionar_regioes_ead(por_regiao: pd.DataFrame, n: int = 2) -> list:
+    """Regioes extremas pela media simples das proporcoes anuais de EAD no
+    periodo: as n maiores seguidas das n menores."""
+    medias = por_regiao.groupby('nome_regiao_interm', observed=True)['pct_ead'].mean().sort_values(ascending=False)
+    return list(medias.index[:n]) + list(medias.index[-n:])
+
+
+def plot_evolucao_ead_enxuta(serie_dependencia, caminho_saida) -> list:
+    """Minas Gerais e as quatro regioes extremas, com rotulo direto no fim de
+    cada linha. Retorna as regioes selecionadas."""
+    por_regiao, estado = _proporcao_ead(serie_dependencia)
+    regioes = selecionar_regioes_ead(por_regiao)
+
+    fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=300)
+    ax.axvspan(2020, 2021, color='gray', alpha=0.10, linewidth=0)
+    ax.text(2020.5, 4.98, 'Pandemia', ha='center', va='top', fontsize=9, color='#555555')
+    rotulos = []
+    for regiao, cor, marcador in zip(regioes, CORES_EAD, MARCADORES_EAD):
+        d = por_regiao[por_regiao['nome_regiao_interm'] == regiao].sort_values('ano')
+        ax.plot(d['ano'], d['pct_ead'], color=cor, marker=marcador, markersize=6.5, linewidth=2,
+                markeredgecolor='white', markeredgewidth=0.7)
+        rotulos.append((d['pct_ead'].iloc[-1], _nome_regiao(regiao), 'normal'))
+    ax.plot(estado['ano'], estado['pct_ead'], color=COR_MG, marker='o', markersize=6.5, linewidth=3.2,
+            markeredgecolor='white', markeredgewidth=0.7, zorder=5)
+    rotulos.append((estado['pct_ead'].iloc[-1], 'Minas Gerais', 'bold'))
+
+    for valor, nome, peso in rotulos:
+        ax.annotate(nome, xy=(2024, valor), xytext=(9, 0), textcoords='offset points', va='center',
+                    fontsize=10.5, fontweight=peso, color='#222222', annotation_clip=False)
+
+    ax.set_xlim(2016.8, 2024.2)
+    ax.set_ylim(0, 5)
+    ax.set_xticks(sorted(estado['ano'].unique()))
+    _formatar_percentual_eixo(ax)
+    ax.set_xlabel('Ano', fontsize=11)
+    ax.set_ylabel('Matrículas em EAD (% do total)', fontsize=11)
+    ax.tick_params(labelsize=10)
+    ax.grid(axis='x', visible=False)
+    ax.grid(axis='y', color='#E6E6E6', linewidth=0.8)
+    sns.despine(ax=ax)
+    fig.tight_layout()
+    fig.savefig(caminho_saida, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Salvo: {caminho_saida}")
+    return regioes
+
+
+def plot_evolucao_ead_paineis(serie_dependencia, caminho_saida) -> None:
+    """Um painel por regiao (grade 4x4), com a mesma escala em y e Minas
+    Gerais como linha cinza de referencia em todos os paineis."""
+    por_regiao, estado = _proporcao_ead(serie_dependencia)
+    regioes = sorted(por_regiao['nome_regiao_interm'].unique(), key=_nome_regiao)
+    anos_eixo = [2017, 2021, 2024]
+
+    fig, eixos = plt.subplots(4, 4, figsize=(10, 9.4), dpi=300, sharey=True)
+    eixos = eixos.ravel()
+    for ax, regiao in zip(eixos, regioes):
+        d = por_regiao[por_regiao['nome_regiao_interm'] == regiao].sort_values('ano')
+        ax.axvspan(2020, 2021, color='gray', alpha=0.10, linewidth=0)
+        ax.plot(estado['ano'], estado['pct_ead'], color=COR_MG_REFERENCIA, linewidth=1.8)
+        ax.plot(d['ano'], d['pct_ead'], color=CORES_EAD[0], marker='o', markersize=3.6, linewidth=2)
+        ax.set_title(_nome_regiao(regiao), fontsize=10.5)
+        ax.set_xlim(2016.6, 2024.4)
+        ax.set_ylim(0, 5)
+        ax.set_xticks(anos_eixo)
+        ax.set_yticks([0, 1, 2, 3, 4, 5])
+        ax.tick_params(labelsize=8.5, labelleft=True)
+        _formatar_percentual_eixo(ax)
+        ax.grid(axis='x', visible=False)
+        ax.grid(axis='y', color='#E6E6E6', linewidth=0.7)
+        sns.despine(ax=ax)
+    for ax in eixos[len(regioes):]:
+        ax.axis('off')
+
+    legenda = [Line2D([0], [0], color=CORES_EAD[0], marker='o', markersize=4, linewidth=2, label='Região intermediária'),
+               Line2D([0], [0], color=COR_MG_REFERENCIA, linewidth=1.8, label='Minas Gerais'),
+               Patch(facecolor='gray', alpha=0.15, label='Período pandêmico (2020–2021)')]
+    eixos[len(regioes)].legend(handles=legenda, loc='center left', frameon=False, fontsize=10.5)
+    fig.supxlabel('Ano', fontsize=11)
+    fig.supylabel('Matrículas em EAD (% do total)', fontsize=11)
     fig.tight_layout()
     fig.savefig(caminho_saida, bbox_inches='tight')
     plt.close(fig)

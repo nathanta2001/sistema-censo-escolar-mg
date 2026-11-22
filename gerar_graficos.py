@@ -23,6 +23,8 @@ from src.visualizacao import (
     gerar_todas_as_dispersoes,
     plot_evolucao_matriculas_regiao,
     plot_evolucao_ead,
+    plot_evolucao_ead_enxuta,
+    plot_evolucao_ead_paineis,
 )
 
 
@@ -58,6 +60,8 @@ def main():
     print("\nGerando série por dependência e gráfico de evolução do EAD...")
     serie_dep = gerar_serie_dependencia_ouro()
     plot_evolucao_ead(serie_dep, os.path.join(DIR_GRAFICOS, 'evolucao_ead.png'))
+    plot_evolucao_ead_enxuta(serie_dep, os.path.join(DIR_GRAFICOS, 'evolucao_ead_enxuta.png'))
+    plot_evolucao_ead_paineis(serie_dep, os.path.join(DIR_GRAFICOS, 'evolucao_ead_paineis.png'))
 
     print(f"\nTodos os gráficos foram salvos em: {DIR_GRAFICOS}")
 
